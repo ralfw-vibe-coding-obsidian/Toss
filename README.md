@@ -144,6 +144,12 @@ Der Dateiname ist immer ein Zeitstempel und ändert sich nie — ein späterer T
 löst also keine Umbenennung aus. Titel und Tags dürfen fehlen; der Titel wird
 dann aus der ersten Zeile abgeleitet.
 
+**Woher der Titel kommt:** `title` aus dem Frontmatter geht immer vor. Fehlt es,
+trennen sich die Wege — eine Toss-Notiz heißt nach ihrer ersten Zeile, weil ihr
+Dateiname nur ein Zeitstempel ist; eine mitindizierte Notiz heißt nach ihrer
+**Datei**, so wie Obsidian sie überall sonst auch benennt. Im Overlay steht der
+Dateiname dann als Platzhalter im Titelfeld.
+
 Toss verwaltet nur `created`, `title` und `tags`. **Alle anderen
 Frontmatter-Felder bleiben beim Speichern unverändert stehen** — `aliases`,
 `cssclasses`, Dataview-Felder und was sonst noch drin ist.

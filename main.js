@@ -20,7 +20,7 @@ const obsidian = require('obsidian');
 const { Plugin, ItemView, Modal, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon } = obsidian;
 
 const VIEW_TYPE_TOSS = 'toss-view';
-const INDEX_VERSION = 5;
+const INDEX_VERSION = 6;
 
 /* Ab wann sich eine Dimensionsreduktion ueberhaupt lohnt. */
 const LSA_MIN_NOTES = 25;
@@ -288,9 +288,15 @@ function buildNote({ created, title, tags, body, extra }) {
   return lines.join('\n') + String(body).trim() + '\n';
 }
 
-/* Titel: Frontmatter, sonst erste Zeile, sonst Zeitstempel. */
-function deriveTitle(meta, body) {
+/*
+ * Titel: Frontmatter zuerst - das meint dasselbe wie bei anderen Plugins.
+ * Danach trennen sich die Wege: eine Toss-Notiz heisst nach ihrer ersten Zeile
+ * (ihr Dateiname ist ja nur ein Zeitstempel), eine fremde nach ihrer Datei -
+ * so, wie Obsidian sie ueberall sonst auch benennt.
+ */
+function deriveTitle(meta, body, fileName) {
   if (meta.title) return meta.title;
+  if (fileName) return fileName;
   const first = body.split(/\r?\n/).find((l) => l.trim().length > 0) || '';
   const clean = first.replace(/^#+\s*/, '').replace(/^[->*\s]+/, '').trim();
   if (clean) {
@@ -527,7 +533,8 @@ class TossIndex {
   async readFile(file) {
     const content = await this.app.vault.cachedRead(file);
     const { meta, body } = parseNote(content);
-    const title = deriveTitle(meta, body);
+    const own = this.isOwn(file);
+    const title = deriveTitle(meta, body, own ? '' : file.basename);
     const tags = meta.tags;
     const searchable = [title, tags.join(' '), body].join('\n');
     const { tf, gf } = featurize(searchable);
@@ -537,11 +544,12 @@ class TossIndex {
       mtime: file.stat.mtime,
       created: meta.created ? Date.parse(meta.created) || file.stat.ctime : file.stat.ctime,
       title,
-      // Titel aus der ersten Zeile abgeleitet? Dann im Vorschautext nicht wiederholen.
-      derived: !meta.title,
+      // Titel aus der ersten Zeile abgeleitet? Dann im Vorschautext nicht
+      // wiederholen. Ein Dateiname-Titel steht nicht im Text, also nein.
+      derived: !meta.title && own,
       // Echte Toss-Notiz oder nur mitindiziert? Aendert die Darstellung und das
       // Verhalten beim Speichern.
-      own: this.isOwn(file),
+      own,
       tags,
       // Originaltext fuer die Anzeige (Fundstellen brauchen echte Positionen),
       // gefaltete Fassung fuer den Abgleich.
@@ -1506,6 +1514,11 @@ class NoteModal extends Modal {
       attr: { type: 'text', placeholder: 'Titel (optional)' },
     });
     titleInput.value = parsed.meta.title || '';
+    // Bei einer fremden Notiz ohne Frontmatter-Titel steht der Dateiname als
+    // Platzhalter - sonst wirkte das Feld leer, obwohl die Karte einen Titel zeigt.
+    if (!parsed.meta.title && !this.tossIndex.isOwn(file)) {
+      titleInput.setAttr('placeholder', file.basename);
+    }
 
     const actions = head.createDiv('toss-edit-actions');
     const iconBtn = (icon, label, cls) => {
