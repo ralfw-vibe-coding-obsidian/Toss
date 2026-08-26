@@ -1419,10 +1419,17 @@ class NoteModal extends Modal {
 
   onOpen() {
     this.modalEl.addClass('toss-modal');
-    this.build();
+    // build() ist async - ohne catch verschwaende ein Fehler als unbehandelte
+    // Promise-Ablehnung, und das Overlay bliebe einfach leer.
+    this.build().catch((e) => {
+      console.error('[Toss]', e);
+      new Notice('Notiz konnte nicht geöffnet werden: ' + e.message);
+      this.close();
+    });
   }
 
   onClose() {
+    if (this.disarmDelete) this.disarmDelete();
     this.flush();
   }
 
@@ -1523,7 +1530,7 @@ class NoteModal extends Modal {
       delBtn.setAttr('aria-label', 'Löschen');
       delBtn.setAttr('title', 'Löschen');
     };
-    this.register(() => disarm());
+    this.disarmDelete = disarm;   // beim Schliessen den Dokument-Listener loesen
 
     delBtn.onclick = async () => {
       if (!armed) {
