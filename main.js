@@ -47,7 +47,7 @@ const DEFAULT_SETTINGS = {
   previewChars: 250,
   layout: 'list',
   zoom: 100,
-  openOnStart: false,
+  openOnStart: true,
 };
 
 /* ------------------------------------------------------------------ *
@@ -440,8 +440,10 @@ class TossIndex {
     this.lsa = null;
     this.lsaTermIndex = null;
     this.tagCounts = new Map();
-    this.status = 'leer';
-    this.building = false;
+    // Von Anfang an "im Aufbau": die Ansicht kann geoeffnet werden, bevor
+    // initialize() gelaufen ist, und soll dann nicht "Noch nichts drin" sagen.
+    this.status = 'lade …';
+    this.building = true;
     this.listeners = new Set();
     this.saveSoon = debounce(() => this.saveCache(), 4000);
     this.lsaSoon = debounce(() => this.buildLsa(), 2500);
@@ -1669,6 +1671,14 @@ class TossSettingTab extends PluginSettingTab {
         await this.plugin.index.rebuild();
       }));
 
+    new Setting(containerEl)
+      .setName('Beim Start öffnen')
+      .setDesc('Obsidian stellt eigene Ansichten beim Neustart nicht immer wieder her — auf dem Telefon landet man sonst in der zuletzt geöffneten Notiz.')
+      .addToggle((t) => t.setValue(this.plugin.settings.openOnStart).onChange(async (v) => {
+        this.plugin.settings.openOnStart = v;
+        await this.plugin.saveSettings();
+      }));
+
     containerEl.createEl('h3', { text: 'Darstellung' });
 
     new Setting(containerEl)
@@ -1778,6 +1788,9 @@ class TossPlugin extends Plugin {
     });
 
     this.app.workspace.onLayoutReady(async () => {
+      // Vor dem Index, damit auf dem Telefon nicht erst die zuletzt geoeffnete
+      // Notiz aufblitzt. Die Ansicht zeigt so lange "Index wird gelesen".
+      if (this.settings.openOnStart) await this.activateView();
       await this.index.initialize();
       this.registerEvent(this.app.vault.on('create', (f) => this.queueUpdate(f)));
       this.registerEvent(this.app.vault.on('modify', (f) => this.queueUpdate(f)));
@@ -1786,7 +1799,6 @@ class TossPlugin extends Plugin {
         this.index.docs.delete(oldPath);
         this.queueUpdate(f);
       }));
-      if (this.settings.openOnStart) this.activateView();
     });
   }
 
@@ -1796,7 +1808,18 @@ class TossPlugin extends Plugin {
     this.index.lsaSoon.cancel();
   }
 
-  async loadSettings() { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); }
+  async loadSettings() {
+    const data = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+    if (data && data.openOnStart === false && !data.settingsVersion) {
+      // Bis 0.8.0 stand die Option nur im Code und war nie zu sehen - ein
+      // gespeichertes false war deshalb keine Entscheidung, sondern der alte
+      // Vorgabewert. Einmalig auf den neuen heben.
+      this.settings.openOnStart = true;
+    }
+    this.settings.settingsVersion = 1;
+    await this.saveData(this.settings);
+  }
   async saveSettings() { await this.saveData(this.settings); }
 
   refreshViews() {

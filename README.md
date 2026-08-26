@@ -234,6 +234,9 @@ Mobile Ansicht auf dem Desktop prüfen: Developer Console öffnen und
 
 ## Einstellungen
 
+- **Beim Start öffnen** — Obsidian stellt eigene Ansichten beim Neustart nicht
+  zuverlässig wieder her; auf dem Telefon landet man sonst in der zuletzt
+  geöffneten Notiz. Standardmäßig an.
 - **Ordner** — wo neue Notizen landen (Standard: `Toss`)
 - **Ganzen Vault durchsuchen** — statt nur des Toss-Ordners
 - **Semantische Suche (LSA)** an/aus, **Dimensionen** (32–64 ist ein guter Bereich)
