@@ -140,12 +140,6 @@
 .toss-card:hover { border-color: var(--background-modifier-border-hover); }
 /* Zuletzt geoeffnet: dezenter Rahmen, damit die Karte wiederzufinden ist. */
 .toss-card.is-last { border-color: var(--interactive-accent); }
-.toss-card.is-expanded {
-  cursor: default;
-  border-color: var(--interactive-accent);
-  background: var(--background-primary);
-  outline: none;   /* der Akzentrahmen zeigt den Fokus schon an */
-}
 .toss-card.is-new { animation: toss-flash 1.2s ease-out; }
 @keyframes toss-flash {
   from { background: var(--interactive-accent); color: var(--text-on-accent); }
@@ -210,7 +204,13 @@
   font-family: var(--font-text);
   line-height: 1.5;
 }
-/* Kopfzeile der aufgeklappten Karte: Titel links, Icons rechts. */
+/* --- Notiz-Overlay ------------------------------------------------ */
+
+.modal.toss-modal { width: min(760px, 92vw); }
+.toss-note .toss-edit-body { min-height: 160px; }
+.toss-note .toss-related { margin-top: 16px; }
+
+/* Kopfzeile des Overlays: Titel links, Icons rechts. */
 /* In schmalen Spalten rutschen die Icons unter den Titel statt ihn zu quetschen. */
 .toss-edit-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .toss-edit-head .toss-edit-title { flex: 1 1 140px; min-width: 0; }

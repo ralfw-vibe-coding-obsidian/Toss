@@ -17,7 +17,7 @@
  */
 
 const obsidian = require('obsidian');
-const { Plugin, ItemView, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon } = obsidian;
+const { Plugin, ItemView, Modal, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon } = obsidian;
 
 const VIEW_TYPE_TOSS = 'toss-view';
 const INDEX_VERSION = 4;
@@ -1101,8 +1101,7 @@ class TossView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.index = plugin.index;
-    this.expandedPath = null;
-    this.dirty = false;
+    this.lastOpenedPath = null;
     this.feedLimit = 40;
     this.searchSoon = debounce(() => this.render(), 130);
   }
@@ -1204,10 +1203,7 @@ class TossView extends ItemView {
     if (!Platform.isMobile) window.setTimeout(() => this.inputEl.focus(), 50);
   }
 
-  async onClose() {
-    this.searchSoon.cancel();
-    if (this.saveExpanded) await this.saveExpanded(); // nichts unter den Tisch fallen lassen
-  }
+  async onClose() { this.searchSoon.cancel(); }
 
   /* --- Eingabe ---------------------------------------------------- */
 
@@ -1290,16 +1286,13 @@ class TossView extends ItemView {
 
   onIndexChanged() {
     this.statusEl.setText(this.index.status + (this.index.lsa ? ` · LSA ${this.index.lsa.k}D` : ''));
-    if (this.dirty) return; // laufende Bearbeitung nicht wegrendern
-    this.render();
+    this.render();   // das Overlay haengt nicht an der Liste, darf also neu bauen
   }
 
   render() {
     if (!this.listEl) return;
     this.statusEl.setText(this.index.status + (this.index.lsa ? ` · LSA ${this.index.lsa.k}D` : ''));
     const query = this.inputEl.value.trim();
-    // Egal wodurch neu gerendert wird - eine offene Bearbeitung geht vorher raus.
-    if (this.saveExpanded) { const flush = this.saveExpanded; this.saveExpanded = null; flush(); }
     this.listEl.empty();
 
     if (!this.index.list.length) {
@@ -1310,7 +1303,6 @@ class TossView extends ItemView {
       return;
     }
 
-    this.listEl.toggleClass('has-expanded', !!this.expandedPath);
     if (query.length >= 2) this.renderSearch(query);
     else this.renderFeed();
 
@@ -1360,12 +1352,17 @@ class TossView extends ItemView {
     if (note) el.createSpan({ cls: 'toss-section-note', text: note });
   }
 
+  openNote(doc) {
+    this.lastOpenedPath = doc.path;
+    this.render();
+    new NoteModal(this, doc).open();
+  }
+
   renderCard(doc, result, re) {
     const card = this.listEl.createDiv('toss-card');
     card.dataset.path = doc.path;
-    if (this.expandedPath === doc.path) { this.fillExpanded(card, doc); return; }
     // Zuletzt geoeffnete Karte bleibt markiert - sonst findet man sie nach dem
-    // Zuklappen zwischen vielen Treffern nicht wieder.
+    // Schliessen des Overlays zwischen vielen Treffern nicht wieder.
     card.toggleClass('is-last', this.lastOpenedPath === doc.path);
 
     const title = card.createDiv('toss-card-title');
@@ -1396,29 +1393,61 @@ class TossView extends ItemView {
     for (const tag of doc.tags) meta.createSpan({ cls: 'toss-tag', text: '#' + tag });
     if (result && result.exact < 0.5) meta.createSpan({ cls: 'toss-score', text: '≈ ' + Math.round(Math.min(1, result.score) * 100) + '%' });
 
-    card.onclick = () => {
-      this.expandedPath = doc.path;
-      this.justExpanded = doc.path;
-      this.lastOpenedPath = doc.path;
-      this.render();
-    };
+    card.onclick = () => this.openNote(doc);
+  }
+}
+
+
+/*
+ * Notiz-Overlay.
+ *
+ * Bewusst ein Modal und keine aufgeklappte Karte: in einem Spaltenlayout waere
+ * die Karte nur spaltenbreit, und ein Element, das ueber alle Spalten spannt,
+ * zerreisst den Spaltenfluss. Obsidians Modal bringt Escape, Klick auf den
+ * Hintergrund und die Darstellung auf dem Telefon gleich mit.
+ */
+class NoteModal extends Modal {
+  constructor(view, doc) {
+    super(view.app);
+    this.view = view;
+    this.plugin = view.plugin;
+    this.index = view.index;
+    this.doc = doc;
+    this.dirty = false;
+    this.pendingSave = null;
   }
 
-  async fillExpanded(card, doc) {
-    card.addClass('is-expanded');
-    // Ohne Fokus in der Karte kaeme kein Escape hier an - er bliebe im Suchfeld.
-    // tabindex -1 macht sie fokussierbar, ohne sie in die Tab-Reihenfolge zu legen
-    // und ohne auf dem Telefon die Tastatur aufzuklappen.
-    card.setAttr('tabindex', '-1');
+  onOpen() {
+    this.modalEl.addClass('toss-modal');
+    this.build();
+  }
+
+  onClose() {
+    this.flush();
+  }
+
+  /* Gespeichert wird beim Verlassen - der Aufrufer wartet nicht immer ab. */
+  flush() {
+    if (!this.pendingSave) return;
+    const save = this.pendingSave;
+    this.pendingSave = null;
+    return save();
+  }
+
+  async build() {
+    await this.flush();
+
+    const doc = this.doc;
     const file = this.app.vault.getAbstractFileByPath(doc.path);
-    if (!(file instanceof TFile)) { this.expandedPath = null; return; }
+    if (!(file instanceof TFile)) { this.close(); return; }
 
     const content = await this.app.vault.cachedRead(file);
     const parsed = parseNote(content);
-    card.empty();
+    const root = this.contentEl;
+    root.empty();
+    root.addClass('toss-note');
 
-    /* Kopfzeile: Titel links, die Aktionen als Icons rechts daneben. */
-    const head = card.createDiv('toss-edit-head');
+    const head = root.createDiv('toss-edit-head');
     const titleInput = head.createEl('input', {
       cls: 'toss-field toss-edit-title',
       attr: { type: 'text', placeholder: 'Titel (optional)' },
@@ -1435,69 +1464,49 @@ class TossView extends ItemView {
       return b;
     };
     const openBtn = iconBtn('external-link', 'In Obsidian öffnen');
-    const closeBtn = iconBtn('x', 'Zuklappen');
+    const closeBtn = iconBtn('x', 'Schließen (Esc)');
     const delBtn = iconBtn('trash-2', 'Löschen', 'toss-icon-danger');
 
-    // Kein Speichern-Knopf: gespeichert wird beim Verlassen der Karte.
+    // Kein Speichern-Knopf: gespeichert wird beim Schließen.
     const markDirty = () => { this.dirty = true; };
 
-    const bodyInput = card.createEl('textarea', { cls: 'toss-edit-body' });
+    const bodyInput = root.createEl('textarea', { cls: 'toss-edit-body' });
     bodyInput.value = parsed.body.trim();
 
     // Gleiche Anordnung wie in der Eingabe oben: Titel, Text, Tags.
-    const tagEditor = new TagEditor(card, this.plugin, {
+    const tagEditor = new TagEditor(root, this.plugin, {
       placeholder: '＃ Tags (optional)',
       onChange: markDirty,
     });
     tagEditor.setTags(parsed.meta.tags);
-    const grow = () => { bodyInput.style.height = 'auto'; bodyInput.style.height = bodyInput.scrollHeight + 'px'; };
-    window.setTimeout(grow, 0);
 
-    bodyInput.addEventListener('input', () => { grow(); markDirty(); });
+    bodyInput.addEventListener('input', markDirty);
     titleInput.addEventListener('input', markDirty);
 
-    const stop = (evt) => evt.stopPropagation();
-    for (const el of [titleInput, bodyInput, tagEditor.el]) el.addEventListener('click', stop);
-
-    /* Speichern passiert von selbst, sobald die Karte verlassen wird. */
     const save = async () => {
       if (!this.dirty) return;
-      // Zustand sofort einsammeln: der Aufrufer wartet nicht immer ab, und die
-      // Felder koennen im naechsten Moment schon aus dem DOM sein.
       this.dirty = false;
-      // In fremden Notizen legt Toss kein created an, das vorher nicht da war -
-      // sonst stuenden dort zwei Anlagedaten. Titel und Tags entstehen ohnehin
-      // nur, wenn du sie selbst eintraegst.
+      // In fremden Notizen legt Toss kein created an, das vorher nicht da war.
       const created = parsed.meta.created
         || (this.index.isOwn(file) ? new Date(doc.created).toISOString() : '');
-      const content = buildNote({
+      const body = buildNote({
         created,
         title: titleInput.value.trim(),
         tags: tagEditor.getTags(),
         body: bodyInput.value,
         extra: parsed.meta.extra,
       });
-      await this.app.vault.modify(file, content);
+      await this.app.vault.modify(file, body);
     };
-    this.saveExpanded = save;
+    this.pendingSave = save;
 
-    const collapse = async () => { await save(); this.expandedPath = null; this.render(); };
-
-    /* Escape klappt zu - die Vorschlagsliste der Tags fängt ihr Escape selbst ab. */
-    card.addEventListener('keydown', (evt) => {
-      if (evt.key !== 'Escape') return;
-      evt.preventDefault();
-      evt.stopPropagation();
-      collapse();
-    });
-
-    openBtn.onclick = async (evt) => {
-      stop(evt);
-      await save();
+    openBtn.onclick = async () => {
+      await this.flush();
+      this.close();
       this.app.workspace.getLeaf(Platform.isMobile ? true : 'tab').openFile(file);
     };
 
-    closeBtn.onclick = async (evt) => { stop(evt); await collapse(); };
+    closeBtn.onclick = () => this.close();
 
     /*
      * Löschen fragt nach: erster Klick macht ein "?" daraus, der zweite löscht.
@@ -1514,9 +1523,9 @@ class TossView extends ItemView {
       delBtn.setAttr('aria-label', 'Löschen');
       delBtn.setAttr('title', 'Löschen');
     };
+    this.register(() => disarm());
 
-    delBtn.onclick = async (evt) => {
-      stop(evt);
+    delBtn.onclick = async () => {
       if (!armed) {
         armed = true;
         delBtn.addClass('is-armed');
@@ -1529,36 +1538,28 @@ class TossView extends ItemView {
       }
       disarm();
       this.dirty = false;
-      this.saveExpanded = null;
-      this.expandedPath = null;
+      this.pendingSave = null;
+      this.close();
       await this.app.fileManager.trashFile(file);
     };
 
     /* Ähnliche Notizen - der Kern der Sache. */
     const related = this.index.related(doc.path);
-    const box = card.createDiv('toss-related');
+    const box = root.createDiv('toss-related');
     box.createDiv({ cls: 'toss-related-head', text: related.length ? 'Ähnlich' : 'Noch nichts Ähnliches da' });
     for (const r of related) {
       const row = box.createDiv('toss-related-row');
       row.createSpan({ cls: 'toss-related-title', text: r.doc.title });
       row.createSpan({ cls: 'toss-score', text: '≈ ' + Math.round(Math.min(1, r.score) * 100) + '%' });
-      row.onclick = async (evt) => {
-        stop(evt);
-        await save();
-        this.expandedPath = r.doc.path;
-        this.justExpanded = r.doc.path;
-        this.lastOpenedPath = r.doc.path;
-        this.render();
+      row.onclick = () => {
+        // Im selben Overlay weiterspringen, damit der Faden nicht abreisst.
+        this.doc = r.doc;
+        this.view.lastOpenedPath = r.doc.path;
+        this.view.render();
+        this.build();
       };
     }
-
-    // Nur beim frischen Aufklappen den Fokus holen, nicht bei jedem Neuaufbau.
-    if (this.justExpanded === doc.path) {
-      this.justExpanded = null;
-      card.focus();
-    }
   }
-
 }
 
 /* ------------------------------------------------------------------ *
