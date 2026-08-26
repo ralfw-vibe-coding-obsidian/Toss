@@ -19,24 +19,90 @@
 .toss-brand { font-weight: 700; letter-spacing: 0.02em; }
 .toss-status { color: var(--text-faint); font-size: 0.72em; }
 .toss-version {
-  margin-left: auto;
   color: var(--text-faint);
   font-size: 0.72em;
   font-family: var(--font-monospace);
 }
 
+/* Layout-Umschalter und Zoom, rechts vor der Versionsnummer. */
+.toss-head-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.toss-head-btn .svg-icon { width: 15px; height: 15px; }
+.toss-head-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.toss-header .toss-head-btn:first-of-type { margin-left: auto; }
+
+.toss-zoom {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin: 0 2px;
+  padding: 1px;
+  border-radius: 8px;
+  background: var(--background-modifier-hover);
+}
+.toss-zoom-value {
+  min-width: 44px;
+  padding: 0 4px;
+  height: 24px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 0.72em;
+  font-family: var(--font-monospace);
+  cursor: pointer;
+}
+.toss-zoom-value:hover { color: var(--text-normal); }
+
+/* Alles unter der Kopfzeile wird gezoomt. */
+.toss-zoomable {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 /* --- Liste ------------------------------------------------------- */
 
-.toss-list {
+.toss-scroll {
   flex: 1 1 auto;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+/*
+ * Die Spalten sitzen bewusst *innerhalb* des Scrollbereichs auf einem Element
+ * mit freier Hoehe. Auf dem Scroller selbst wuerden die Spalten seitwaerts
+ * aus dem Bild laufen statt nach unten.
+ */
+.toss-list {
   padding: 8px 10px max(16px, env(safe-area-inset-bottom));
   width: 100%;
   max-width: 760px;
   margin: 0 auto;
-  overscroll-behavior: contain;
+  column-gap: 10px;
 }
+
+.toss-layout-two .toss-list { max-width: 1200px; columns: 240px 2; }
+.toss-layout-two .toss-compose { max-width: 1200px; }
+.toss-layout-auto .toss-list { max-width: none; columns: 260px; }
+.toss-layout-auto .toss-compose { max-width: none; }
+
+/* Ueberschriften und die aufgeklappte Karte laufen ueber alle Spalten. */
+.toss-section,
+.toss-more,
+.toss-card.is-expanded { column-span: all; }
+.toss-card { break-inside: avoid; -webkit-column-break-inside: avoid; }
 
 .toss-section {
   display: flex;
@@ -78,10 +144,7 @@
   font-size: 0.88em;
   line-height: 1.4;
   margin-top: 3px;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .toss-card-meta {
   display: flex;
@@ -292,7 +355,10 @@
 .toss-compose-title:focus { border-color: var(--interactive-accent); background: var(--background-primary); }
 
 .toss-inputrow { display: flex; align-items: flex-start; gap: 8px; }
-.toss-input-wrap { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
+/* Titel, Textfeld und Tags teilen sich eine Spalte - damit sind sie exakt
+   gleich breit, und der Toss-Knopf steht daneben statt darunter. */
+.toss-compose-fields { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.toss-input-wrap { position: relative; display: flex; width: 100%; }
 .toss-input {
   width: 100%;
   /* Drei Zeilen von Anfang an, groesser ziehbar am Griff unten rechts. */

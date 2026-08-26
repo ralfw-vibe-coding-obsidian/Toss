@@ -20,7 +20,7 @@ const obsidian = require('obsidian');
 const { Plugin, ItemView, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon } = obsidian;
 
 const VIEW_TYPE_TOSS = 'toss-view';
-const INDEX_VERSION = 2;
+const INDEX_VERSION = 3;
 
 /* Ab wann sich eine Dimensionsreduktion ueberhaupt lohnt. */
 const LSA_MIN_NOTES = 25;
@@ -44,6 +44,9 @@ const DEFAULT_SETTINGS = {
   minScore: 0.06,
   maxResults: 40,
   relatedCount: 5,
+  previewChars: 250,
+  layout: 'list',
+  zoom: 100,
   openOnStart: false,
 };
 
@@ -143,6 +146,50 @@ function similarity(a, b) {
 /* Ein einzelner Tag in Normalform. */
 function normalizeTag(raw) {
   return String(raw).trim().replace(/^#+/, '').replace(/\s+/g, '-').replace(/[,]/g, '').trim();
+}
+
+/*
+ * Suchmuster fuer die Anzeige. Es laeuft auf dem Originaltext, muss also
+ * Umlaute wieder aufnehmen: die Anfrage ist gefaltet ("fuer"), im Text steht
+ * vielleicht "für". Reihenfolge der Ersetzungen ist wichtig - siehe Kommentar.
+ */
+function tolerantPattern(word) {
+  return word
+    .replace(/ae/g, '(ä|ae)')
+    .replace(/oe/g, '(ö|oe)')   // "(ä|ae)" enthaelt kein "oe"
+    .replace(/ue/g, '(ü|ue)')   // ... und keines der beiden ein "ue"
+    .replace(/ss/g, '(ß|ss)');
+}
+
+/* rawWords sind bereits gefaltet, enthalten also nur a-z0-9. */
+function queryRegex(rawWords) {
+  if (!rawWords || !rawWords.length) return null;
+  try {
+    return new RegExp('(' + rawWords.map(tolerantPattern).join('|') + ')', 'gi');
+  } catch (e) {
+    return null;
+  }
+}
+
+/* Textausschnitt um die erste Fundstelle statt stumpf des Anfangs. */
+function snippet(text, re, max) {
+  if (!text) return '';
+  const head = () => (text.length > max ? text.slice(0, max).trimEnd() + ' …' : text);
+  if (!re) return head();
+  re.lastIndex = 0;
+  const hit = re.exec(text);
+  if (!hit) return head();
+
+  let start = Math.max(0, hit.index - 50);
+  if (start > 0) {
+    const space = text.indexOf(' ', start);
+    if (space !== -1 && space - start < 25) start = space + 1;
+  }
+  const end = Math.min(text.length, start + max);
+  let out = text.slice(start, end).trim();
+  if (start > 0) out = '… ' + out;
+  if (end < text.length) out += ' …';
+  return out;
 }
 
 function escapeRegExp(s) {
@@ -440,7 +487,7 @@ class TossIndex {
     try {
       const docs = this.list.map((d) => ({
         path: d.path, mtime: d.mtime, created: d.created, title: d.title,
-        tags: d.tags, preview: d.preview, norm: d.norm, tf: d.tf, gf: d.gf,
+        tags: d.tags, text: d.text, norm: d.norm, tf: d.tf, gf: d.gf,
       }));
       await this.app.vault.adapter.write(this.cachePath, JSON.stringify({ version: INDEX_VERSION, docs }));
     } catch (e) {
@@ -485,7 +532,9 @@ class TossIndex {
       created: meta.created ? Date.parse(meta.created) || file.stat.ctime : file.stat.ctime,
       title,
       tags,
-      preview: body.replace(/\s+/g, ' ').trim().slice(0, 280),
+      // Originaltext fuer die Anzeige (Fundstellen brauchen echte Positionen),
+      // gefaltete Fassung fuer den Abgleich.
+      text: body.replace(/\s+/g, ' ').trim().slice(0, 4000),
       norm: fold(searchable).replace(/\s+/g, ' '),
       tf, gf,
     });
@@ -584,7 +633,13 @@ class TossIndex {
     const termIndex = new Map();
     vocab.forEach((t, i) => termIndex.set(t, i));
 
-    const rows = this.list.map((doc) => {
+    /*
+     * Die Zeilennummer haengt am Dokument, nicht an der Listenposition: sobald
+     * eine Notiz dazukommt oder sich aendert, sortiert sich die Liste neu.
+     * Positionsbasierte Vektoren waeren dann stillschweigend falsch zugeordnet.
+     */
+    const rows = this.list.map((doc, i) => {
+      doc.lsaRow = i;
       const cols = [];
       const vals = [];
       for (const t in doc.wordVec) {
@@ -669,15 +724,15 @@ class TossIndex {
       }
 
       let lsa = 0;
-      if (qLsa) {
+      if (qLsa && doc.lsaRow !== undefined) {
         const { k, docVectors } = this.lsa;
-        const off = i * k;
+        const off = doc.lsaRow * k;
         for (let j = 0; j < k; j++) lsa += qLsa[j] * docVectors[off + j];
         lsa = lsaFloor(lsa);
       }
 
       let score = s.weightExact * exact + s.weightWord * word[i] + s.weightGram * gram[i] + s.weightLsa * lsa;
-      if (!score) continue;
+      if (!(score > 0)) continue;   // fasst auch NaN, statt es stumm zu schlucken
 
       for (const tag of doc.tags) if (rawWords.includes(fold(tag))) score += 0.25;
       const ageDays = (now - doc.created) / 86400000;
@@ -713,18 +768,19 @@ class TossIndex {
     for (let i = 0; i < n; i++) {
       if (i === doc.index) continue;
       let lsa = 0;
-      if (this.lsa) {
+      const other = this.list[i];
+      if (this.lsa && doc.lsaRow !== undefined && other.lsaRow !== undefined) {
         const { k, docVectors } = this.lsa;
-        const a = doc.index * k;
-        const b = i * k;
+        const a = doc.lsaRow * k;
+        const b = other.lsaRow * k;
         for (let j = 0; j < k; j++) lsa += docVectors[a + j] * docVectors[b + j];
         lsa = lsaFloor(lsa);
       }
       let score = 0.6 * word[i] + 0.2 * gram[i] + 0.6 * lsa;
-      const shared = this.list[i].tags.filter((t) => doc.tags.includes(t)).length;
+      const shared = other.tags.filter((t) => doc.tags.includes(t)).length;
       score += shared * 0.15;
-      if (score < 0.05) continue;
-      results.push({ doc: this.list[i], score });
+      if (!(score >= 0.05)) continue;
+      results.push({ doc: other, score });
     }
     results.sort((a, b) => b.score - a.score);
     return results.slice(0, limit || this.settings.relatedCount);
@@ -797,9 +853,12 @@ function accumulate(postings, vec, out) {
  * ------------------------------------------------------------------ */
 
 /* setIcon laesst das Element leer, wenn Lucide den Namen nicht kennt. */
-function setIconSafe(el, name, fallbackText) {
-  setIcon(el, name);
-  if (!el.firstChild && fallbackText) el.setText(fallbackText);
+function setIconSafe(el, names, fallbackText) {
+  for (const name of [].concat(names)) {
+    setIcon(el, name);
+    if (el.firstChild) return;
+  }
+  if (fallbackText) el.setText(fallbackText);
 }
 
 function relTime(ts) {
@@ -814,9 +873,9 @@ function relTime(ts) {
   return new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
-function highlightInto(el, text, words) {
-  if (!words.length) { el.setText(text); return; }
-  const re = new RegExp('(' + words.map(escapeRegExp).join('|') + ')', 'gi');
+function highlightInto(el, text, re) {
+  if (!re) { el.setText(text); return; }
+  re.lastIndex = 0;
   let last = 0;
   for (const match of text.matchAll(re)) {
     if (match.index > last) el.appendText(text.slice(last, match.index));
@@ -1023,6 +1082,12 @@ class TagEditor {
   }
 }
 
+const LAYOUTS = {
+  list: { label: 'Eine Spalte', icon: 'list' },
+  two: { label: 'Zwei Spalten', icon: ['columns-2', 'columns'] },
+  auto: { label: 'So viele wie passen', icon: ['layout-grid', 'grid'] },
+};
+
 class TossView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -1046,20 +1111,39 @@ class TossView extends ItemView {
     const header = root.createDiv('toss-header');
     header.createSpan({ cls: 'toss-brand', text: 'Toss' });
     this.statusEl = header.createSpan({ cls: 'toss-status' });
+
+    this.layoutBtn = header.createEl('button', { cls: 'toss-head-btn' });
+    this.layoutBtn.onclick = () => this.cycleLayout();
+
+    /* Zoom wirkt auf alles unter der Kopfzeile. */
+    const zoom = header.createDiv('toss-zoom');
+    const zoomOut = zoom.createEl('button', { cls: 'toss-head-btn', attr: { 'aria-label': 'Kleiner', title: 'Kleiner' } });
+    setIconSafe(zoomOut, 'minus', '−');
+    this.zoomValueEl = zoom.createEl('button', { cls: 'toss-zoom-value', attr: { title: 'Auf 100 % zurücksetzen' } });
+    const zoomIn = zoom.createEl('button', { cls: 'toss-head-btn', attr: { 'aria-label': 'Größer', title: 'Größer' } });
+    setIconSafe(zoomIn, 'plus', '+');
+    zoomOut.onclick = () => this.setZoom(this.plugin.settings.zoom - 10);
+    zoomIn.onclick = () => this.setZoom(this.plugin.settings.zoom + 10);
+    this.zoomValueEl.onclick = () => this.setZoom(100);
+
     // Versionsnummer: daran sieht man auf einen Blick, ob der Reload durch ist.
     header.createSpan({ cls: 'toss-version', text: 'v' + this.plugin.manifest.version });
 
-    /* Die One Box sitzt oben: erst schreiben, darunter waechst das Ergebnis. */
-    const compose = root.createDiv('toss-compose');
+    this.zoomEl = root.createDiv('toss-zoomable');
 
-    /* Titel und Tags stehen offen da - unaufdringlich, aber ohne Ratespiel. */
-    this.titleEl = compose.createEl('input', {
+    /* Die One Box sitzt oben: erst schreiben, darunter waechst das Ergebnis. */
+    const compose = this.zoomEl.createDiv('toss-compose');
+    const row = compose.createDiv('toss-inputrow');
+    /* Titel, Text und Tags stehen in einer Spalte - dadurch sind alle drei
+       genau so breit wie das Textfeld, der Toss-Knopf steht daneben. */
+    const fields = row.createDiv('toss-compose-fields');
+
+    this.titleEl = fields.createEl('input', {
       cls: 'toss-compose-title',
       attr: { type: 'text', placeholder: 'Titel (optional)' },
     });
 
-    const row = compose.createDiv('toss-inputrow');
-    const wrap = row.createDiv('toss-input-wrap');
+    const wrap = fields.createDiv('toss-input-wrap');
     this.inputEl = wrap.createEl('textarea', {
       cls: 'toss-input',
       attr: { rows: '3', placeholder: 'Reinwerfen oder suchen …', enterkeyhint: 'enter' },
@@ -1076,9 +1160,10 @@ class TossView extends ItemView {
       attr: { title: Platform.isMobile ? 'Notiz anlegen' : 'Notiz anlegen (Cmd/Strg + ⏎)' },
     });
 
-    this.tagEditor = new TagEditor(compose, this.plugin, { placeholder: '＃ Tags (optional)' });
+    this.tagEditor = new TagEditor(fields, this.plugin, { placeholder: '＃ Tags (optional)' });
 
-    this.listEl = root.createDiv('toss-list');
+    this.scrollEl = this.zoomEl.createDiv('toss-scroll');
+    this.listEl = this.scrollEl.createDiv('toss-list');
 
     this.clearEl.onclick = () => { this.clearCompose(); this.inputEl.focus(); };
     this.sendEl.onclick = () => this.toss();
@@ -1104,6 +1189,8 @@ class TossView extends ItemView {
     }
 
     this.register(this.index.onChange(() => this.onIndexChanged()));
+    this.applyZoom();
+    this.applyLayout();
     this.syncInput();
     this.render();
     if (!Platform.isMobile) window.setTimeout(() => this.inputEl.focus(), 50);
@@ -1115,6 +1202,38 @@ class TossView extends ItemView {
   }
 
   /* --- Eingabe ---------------------------------------------------- */
+
+  /* --- Zoom und Layout ------------------------------------------- */
+
+  async setZoom(value) {
+    const zoom = Math.max(50, Math.min(200, Math.round(value / 10) * 10));
+    if (zoom === this.plugin.settings.zoom) return;
+    this.plugin.settings.zoom = zoom;
+    await this.plugin.saveSettings();
+    this.applyZoom();
+  }
+
+  applyZoom() {
+    const zoom = this.plugin.settings.zoom || 100;
+    this.zoomEl.style.zoom = String(zoom / 100);
+    this.zoomValueEl.setText(zoom + '%');
+  }
+
+  async cycleLayout() {
+    const order = ['list', 'two', 'auto'];
+    const next = order[(order.indexOf(this.plugin.settings.layout) + 1) % order.length];
+    this.plugin.settings.layout = next;
+    await this.plugin.saveSettings();
+    this.applyLayout();
+  }
+
+  applyLayout() {
+    const layout = LAYOUTS[this.plugin.settings.layout] ? this.plugin.settings.layout : 'list';
+    for (const key of Object.keys(LAYOUTS)) this.zoomEl.toggleClass('toss-layout-' + key, key === layout);
+    setIconSafe(this.layoutBtn, LAYOUTS[layout].icon, LAYOUTS[layout].label);
+    this.layoutBtn.setAttr('aria-label', 'Layout: ' + LAYOUTS[layout].label);
+    this.layoutBtn.setAttr('title', 'Layout: ' + LAYOUTS[layout].label + ' — zum Wechseln tippen');
+  }
 
   autoGrow() {
     if (this.userResized) return;   // von Hand gezogene Hoehe nicht ueberschreiben
@@ -1183,13 +1302,14 @@ class TossView extends ItemView {
       return;
     }
 
+    this.listEl.toggleClass('has-expanded', !!this.expandedPath);
     if (query.length >= 2) this.renderSearch(query);
     else this.renderFeed();
 
     if (this.flashPath) {
       const card = this.listEl.querySelector(`[data-path="${CSS.escape(this.flashPath)}"]`);
       if (card) { card.addClass('is-new'); window.setTimeout(() => card.removeClass('is-new'), 1200); }
-      this.listEl.scrollTop = 0;
+      this.scrollEl.scrollTop = 0;
       this.flashPath = null;
     }
   }
@@ -1197,7 +1317,7 @@ class TossView extends ItemView {
   renderFeed() {
     const docs = this.index.list;
     this.section('Zuletzt', `${docs.length}`);
-    for (const doc of docs.slice(0, this.feedLimit)) this.renderCard(doc, null, []);
+    for (const doc of docs.slice(0, this.feedLimit)) this.renderCard(doc, null, null);
     if (docs.length > this.feedLimit) {
       const more = this.listEl.createEl('button', { cls: 'toss-more', text: `${docs.length - this.feedLimit} weitere anzeigen` });
       more.onclick = () => { this.feedLimit += 40; this.render(); };
@@ -1206,15 +1326,16 @@ class TossView extends ItemView {
 
   renderSearch(query) {
     const { hits, similar } = this.index.search(query);
-    const words = query.toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
+    const words = fold(query).split(/\s+/).filter((w) => w.length >= 2);
+    const re = queryRegex(words);
 
     if (hits.length) {
       this.section('Treffer', String(hits.length));
-      for (const r of hits) this.renderCard(r.doc, r, words);
+      for (const r of hits) this.renderCard(r.doc, r, re);
     }
     if (similar.length) {
       this.section('Auch ähnlich', this.index.lsa ? 'semantisch' : 'lexikalisch');
-      for (const r of similar) this.renderCard(r.doc, r, words);
+      for (const r of similar) this.renderCard(r.doc, r, re);
     }
     if (!hits.length && !similar.length) {
       const empty = this.listEl.createDiv('toss-empty');
@@ -1229,17 +1350,19 @@ class TossView extends ItemView {
     if (note) el.createSpan({ cls: 'toss-section-note', text: note });
   }
 
-  renderCard(doc, result, words) {
+  renderCard(doc, result, re) {
     const card = this.listEl.createDiv('toss-card');
     card.dataset.path = doc.path;
     if (this.expandedPath === doc.path) { this.fillExpanded(card, doc); return; }
 
     const title = card.createDiv('toss-card-title');
-    highlightInto(title, doc.title, words);
+    highlightInto(title, doc.title, re);
 
-    if (doc.preview && doc.preview !== doc.title) {
+    // Ausschnitt um die erste Fundstelle, sonst der Anfang.
+    const text = snippet(doc.text || '', re, this.plugin.settings.previewChars);
+    if (text && text !== doc.title) {
       const preview = card.createDiv('toss-card-preview');
-      highlightInto(preview, doc.preview, words);
+      highlightInto(preview, text, re);
     }
 
     const meta = card.createDiv('toss-card-meta');
@@ -1423,6 +1546,30 @@ class TossSettingTab extends PluginSettingTab {
         await this.plugin.index.rebuild();
       }));
 
+    containerEl.createEl('h3', { text: 'Darstellung' });
+
+    new Setting(containerEl)
+      .setName('Layout der Ergebnisse')
+      .setDesc('Auch über das Symbol in der Kopfzeile umschaltbar.')
+      .addDropdown((d) => {
+        for (const [key, def] of Object.entries(LAYOUTS)) d.addOption(key, def.label);
+        d.setValue(this.plugin.settings.layout).onChange(async (v) => {
+          this.plugin.settings.layout = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshViews();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Länge des Textausschnitts')
+      .setDesc('Zeichen pro Karte. Der Ausschnitt beginnt bei der ersten Fundstelle.')
+      .addSlider((s) => s.setLimits(80, 600, 10).setValue(this.plugin.settings.previewChars).setDynamicTooltip()
+        .onChange(async (v) => {
+          this.plugin.settings.previewChars = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshViews();
+        }));
+
     containerEl.createEl('h3', { text: 'Ähnlichkeit' });
 
     new Setting(containerEl)
@@ -1528,6 +1675,12 @@ class TossPlugin extends Plugin {
 
   async loadSettings() { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); }
   async saveSettings() { await this.saveData(this.settings); }
+
+  refreshViews() {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TOSS)) {
+      if (leaf.view instanceof TossView && leaf.view.listEl) { leaf.view.applyLayout(); leaf.view.render(); }
+    }
+  }
 
   queueUpdate(file) {
     if (!(file instanceof TFile) || file.extension !== 'md') return;

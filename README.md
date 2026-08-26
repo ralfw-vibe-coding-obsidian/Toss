@@ -18,8 +18,9 @@ Eingabe — kein Moduswechsel:
 - Das Feld ist **drei Zeilen hoch** und lässt sich am Griff unten rechts größer
   ziehen; solange man nicht selbst zieht, wächst es beim Schreiben mit. Das `×`
   oben rechts im Feld leert es.
-- **Titel und Tags** stehen darüber und darunter — ohne Rahmen, bis man sie
-  anfasst. Beide optional, beide ignorierbar.
+- **Titel und Tags** stehen darüber und darunter, genau so breit wie das
+  Textfeld — ohne Rahmen, bis man sie anfasst. Beide optional, beide
+  ignorierbar.
 
 `Cmd`/`Strg` + `⏎` hängt am Kommando **Notiz einwerfen** und ist damit unter
 *Einstellungen → Hotkeys* umbelegbar. Es greift nur, solange das Eingabefeld den
@@ -30,8 +31,27 @@ Fokus hat.
 Netter Nebeneffekt der One Box: Doppelungen fallen beim Schreiben auf, weil das
 Ähnliche schon eingeblendet ist, bevor man auf „Toss“ tippt.
 
-Rechts im Kopf steht die Versionsnummer — daran sieht man auf einen Blick, ob
-ein Reload durch ist.
+Rechts im Kopf sitzen drei Dinge: der **Layout-Umschalter**, der **Zoom** und die
+**Versionsnummer** — an letzterer sieht man auf einen Blick, ob ein Reload durch
+ist.
+
+### Layout und Zoom
+
+Der Zoom (`− 100 % +`, in 10er-Schritten von 50 bis 200) wirkt auf alles unter
+der Kopfzeile. Ein Klick auf den Prozentwert setzt auf 100 % zurück.
+
+Das Symbol daneben schaltet zwischen drei Anordnungen der Ergebnisse um:
+**eine Spalte**, **zwei Spalten** und **so viele wie passen**. Die Spalten haben
+eine Mindestbreite, auf dem Telefon bleibt es dadurch von selbst einspaltig.
+Beides wird gespeichert und steht auch in den Einstellungen.
+
+### Fundstellen
+
+Auf den Karten steht nicht der Textanfang, sondern der Ausschnitt **um die erste
+Fundstelle** — mit `…` davor, wenn mitten im Text begonnen wird, und den
+Suchbegriffen hervorgehoben. Umlaute werden dabei in beide Richtungen erkannt:
+`bruehgruppe` findet und markiert `Brühgruppe`. Die Länge ist einstellbar,
+Vorgabe sind 250 Zeichen.
 
 ### Aufgeklappte Notiz
 
@@ -196,6 +216,7 @@ Mobile Ansicht auf dem Desktop prüfen: Developer Console öffnen und
 - **Semantische Suche (LSA)** an/aus, **Dimensionen** (32–64 ist ein guter Bereich)
 - **Gewichte** der vier Kanäle
 - **Schwelle für „Auch ähnlich“** — höher = weniger, aber sicherere Vorschläge
+- **Layout der Ergebnisse** und **Länge des Textausschnitts**
 - **Index neu aufbauen**
 
 ## Nächste Schritte
