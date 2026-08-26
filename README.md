@@ -25,8 +25,8 @@ Eingabe — kein Moduswechsel:
 `Cmd`/`Strg` + `⏎` hängt am Kommando **Notiz einwerfen** und ist damit unter
 *Einstellungen → Hotkeys* umbelegbar. Es greift nur, solange das Eingabefeld den
 Fokus hat.
-- **Antippen** einer Karte klappt sie auf: Titel, Tags und Text lassen sich
-  direkt bearbeiten, darunter stehen die ähnlichen Notizen.
+- **Antippen** einer Karte öffnet sie als Overlay: Titel, Tags und Text lassen
+  sich direkt bearbeiten, darunter stehen die ähnlichen Notizen.
 
 Netter Nebeneffekt der One Box: Doppelungen fallen beim Schreiben auf, weil das
 Ähnliche schon eingeblendet ist, bevor man auf „Toss“ tippt.
@@ -58,17 +58,22 @@ Suchbegriffen hervorgehoben. Umlaute werden dabei in beide Richtungen erkannt:
 `bruehgruppe` findet und markiert `Brühgruppe`. Die Länge ist einstellbar,
 Vorgabe sind 250 Zeichen.
 
-### Aufgeklappte Notiz
+### Das Notiz-Overlay
 
 Aufbau wie in der Eingabe oben: Titel, Text, Tags. Die Aktionen sitzen als Icons
-rechts neben dem Titel: in Obsidian öffnen (↗), zuklappen (×), löschen (🗑). Löschen wird beim ersten Tipp zum Fragezeichen und
-löscht erst beim zweiten; ein Klick irgendwo anders nimmt die Frage zurück.
-`Esc` klappt die Karte zu.
+rechts neben dem Titel: in Obsidian öffnen (↗), schließen (×), löschen (🗑).
+Löschen wird beim ersten Tipp zum Fragezeichen und löscht erst beim zweiten; ein
+Klick irgendwo anders nimmt die Frage zurück. `Esc` und ein Klick auf den
+Hintergrund schließen ebenfalls.
 
-**Gespeichert wird von selbst**, sobald die Karte verlassen wird — beim Öffnen,
-beim Zuklappen, per `Esc`, beim Springen zu einer ähnlichen Notiz, beim Klick auf
-eine andere Karte, beim Tippen in der Suche und beim Schließen der Ansicht.
-Deshalb gibt es keinen Speichern-Knopf.
+Bewusst ein Overlay und keine aufgeklappte Karte: In einem Spaltenlayout wäre die
+Karte nur spaltenbreit, und ein Element, das über alle Spalten spannt, zerreißt
+den Spaltenfluss — die Karte spränge ans Ende der Liste. Die Liste bleibt jetzt
+unangetastet stehen, die zuletzt geöffnete Karte behält ihren Rahmen.
+
+**Gespeichert wird von selbst**, sobald das Overlay geschlossen wird — über das
+×, per `Esc`, über den Hintergrund, beim Öffnen in Obsidian und beim Springen zu
+einer ähnlichen Notiz. Deshalb gibt es keinen Speichern-Knopf.
 
 ### Tags
 
