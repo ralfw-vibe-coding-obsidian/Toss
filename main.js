@@ -1415,12 +1415,19 @@ class TossView extends ItemView {
 class NoteModal extends Modal {
   constructor(view, doc) {
     super(view.app);
-    this.view = view;
-    this.plugin = view.plugin;
-    this.index = view.index;
-    this.doc = doc;
-    this.dirty = false;
-    this.pendingSave = null;
+    /*
+     * Eigene Felder mit "toss" praefixen: als Unterklasse teilt man sich den
+     * Namensraum mit Modal. "this.doc" etwa gibt es dort schon als Getter
+     * (Owner-Document fuer Popout-Fenster) - eine Zuweisung wirft, und zwar im
+     * Konstruktor, also noch bevor das Overlay ueberhaupt geoeffnet wird.
+     */
+    this.tossView = view;
+    this.tossPlugin = view.plugin;
+    this.tossIndex = view.index;
+    this.tossNote = doc;
+    this.tossDirty = false;
+    this.tossSave = null;
+    this.tossDisarm = null;
   }
 
   onOpen() {
@@ -1435,22 +1442,22 @@ class NoteModal extends Modal {
   }
 
   onClose() {
-    if (this.disarmDelete) this.disarmDelete();
+    if (this.tossDisarm) this.tossDisarm();
     this.flush();
   }
 
   /* Gespeichert wird beim Verlassen - der Aufrufer wartet nicht immer ab. */
   flush() {
-    if (!this.pendingSave) return;
-    const save = this.pendingSave;
-    this.pendingSave = null;
+    if (!this.tossSave) return;
+    const save = this.tossSave;
+    this.tossSave = null;
     return save();
   }
 
   async build() {
     await this.flush();
 
-    const doc = this.doc;
+    const doc = this.tossNote;
     const file = this.app.vault.getAbstractFileByPath(doc.path);
     if (!(file instanceof TFile)) {
       new Notice('Notiz nicht gefunden: ' + doc.path);
@@ -1485,13 +1492,13 @@ class NoteModal extends Modal {
     const delBtn = iconBtn('trash-2', 'Löschen', 'toss-icon-danger');
 
     // Kein Speichern-Knopf: gespeichert wird beim Schließen.
-    const markDirty = () => { this.dirty = true; };
+    const markDirty = () => { this.tossDirty = true; };
 
     const bodyInput = root.createEl('textarea', { cls: 'toss-edit-body' });
     bodyInput.value = parsed.body.trim();
 
     // Gleiche Anordnung wie in der Eingabe oben: Titel, Text, Tags.
-    const tagEditor = new TagEditor(root, this.plugin, {
+    const tagEditor = new TagEditor(root, this.tossPlugin, {
       placeholder: '＃ Tags (optional)',
       onChange: markDirty,
     });
@@ -1501,11 +1508,11 @@ class NoteModal extends Modal {
     titleInput.addEventListener('input', markDirty);
 
     const save = async () => {
-      if (!this.dirty) return;
-      this.dirty = false;
+      if (!this.tossDirty) return;
+      this.tossDirty = false;
       // In fremden Notizen legt Toss kein created an, das vorher nicht da war.
       const created = parsed.meta.created
-        || (this.index.isOwn(file) ? new Date(doc.created).toISOString() : '');
+        || (this.tossIndex.isOwn(file) ? new Date(doc.created).toISOString() : '');
       const body = buildNote({
         created,
         title: titleInput.value.trim(),
@@ -1515,7 +1522,7 @@ class NoteModal extends Modal {
       });
       await this.app.vault.modify(file, body);
     };
-    this.pendingSave = save;
+    this.tossSave = save;
 
     openBtn.onclick = async () => {
       await this.flush();
@@ -1540,7 +1547,7 @@ class NoteModal extends Modal {
       delBtn.setAttr('aria-label', 'Löschen');
       delBtn.setAttr('title', 'Löschen');
     };
-    this.disarmDelete = disarm;   // beim Schliessen den Dokument-Listener loesen
+    this.tossDisarm = disarm;   // beim Schliessen den Dokument-Listener loesen
 
     delBtn.onclick = async () => {
       if (!armed) {
@@ -1554,14 +1561,14 @@ class NoteModal extends Modal {
         return;
       }
       disarm();
-      this.dirty = false;
-      this.pendingSave = null;
+      this.tossDirty = false;
+      this.tossSave = null;
       this.close();
       await this.app.fileManager.trashFile(file);
     };
 
     /* Ähnliche Notizen - der Kern der Sache. */
-    const related = this.index.related(doc.path);
+    const related = this.tossIndex.related(doc.path);
     const box = root.createDiv('toss-related');
     box.createDiv({ cls: 'toss-related-head', text: related.length ? 'Ähnlich' : 'Noch nichts Ähnliches da' });
     for (const r of related) {
@@ -1570,9 +1577,9 @@ class NoteModal extends Modal {
       row.createSpan({ cls: 'toss-score', text: '≈ ' + Math.round(Math.min(1, r.score) * 100) + '%' });
       row.onclick = () => {
         // Im selben Overlay weiterspringen, damit der Faden nicht abreisst.
-        this.doc = r.doc;
-        this.view.lastOpenedPath = r.doc.path;
-        this.view.render();
+        this.tossNote = r.doc;
+        this.tossView.lastOpenedPath = r.doc.path;
+        this.tossView.render();
         this.build();
       };
     }
