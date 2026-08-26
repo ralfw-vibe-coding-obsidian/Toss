@@ -20,7 +20,7 @@ const obsidian = require('obsidian');
 const { Plugin, ItemView, Modal, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon } = obsidian;
 
 const VIEW_TYPE_TOSS = 'toss-view';
-const INDEX_VERSION = 4;
+const INDEX_VERSION = 5;
 
 /* Ab wann sich eine Dimensionsreduktion ueberhaupt lohnt. */
 const LSA_MIN_NOTES = 25;
@@ -493,7 +493,7 @@ class TossIndex {
     try {
       const docs = this.list.map((d) => ({
         path: d.path, mtime: d.mtime, created: d.created, title: d.title,
-        derived: d.derived, tags: d.tags, text: d.text, norm: d.norm, tf: d.tf, gf: d.gf,
+        derived: d.derived, own: d.own, tags: d.tags, text: d.text, norm: d.norm, tf: d.tf, gf: d.gf,
       }));
       await this.app.vault.adapter.write(this.cachePath, JSON.stringify({ version: INDEX_VERSION, docs }));
     } catch (e) {
@@ -539,6 +539,9 @@ class TossIndex {
       title,
       // Titel aus der ersten Zeile abgeleitet? Dann im Vorschautext nicht wiederholen.
       derived: !meta.title,
+      // Echte Toss-Notiz oder nur mitindiziert? Aendert die Darstellung und das
+      // Verhalten beim Speichern.
+      own: this.isOwn(file),
       tags,
       // Originaltext fuer die Anzeige (Fundstellen brauchen echte Positionen),
       // gefaltete Fassung fuer den Abgleich.
@@ -867,6 +870,12 @@ function setIconSafe(el, names, fallbackText) {
     if (el.firstChild) return;
   }
   if (fallbackText) el.setText(fallbackText);
+}
+
+/* Ordner einer Notiz, fuer die Herkunftsangabe fremder Notizen. */
+function folderOf(path) {
+  const cut = path.lastIndexOf('/');
+  return cut === -1 ? 'Vault-Wurzel' : path.slice(0, cut);
 }
 
 function relTime(ts) {
@@ -1379,6 +1388,8 @@ class TossView extends ItemView {
   renderCard(doc, result, re) {
     const card = (this.groupEl || this.listEl).createDiv('toss-card');
     card.dataset.path = doc.path;
+    // Notizen von ausserhalb des Toss-Ordners bekommen eine Schraffur.
+    card.toggleClass('is-foreign', doc.own === false);
     // Zuletzt geoeffnete Karte bleibt markiert - sonst findet man sie nach dem
     // Schliessen des Overlays zwischen vielen Treffern nicht wieder.
     card.toggleClass('is-last', this.lastOpenedPath === doc.path);
@@ -1408,6 +1419,12 @@ class TossView extends ItemView {
 
     const meta = card.createDiv('toss-card-meta');
     meta.createSpan({ text: relTime(doc.created) });
+    if (doc.own === false) {
+      const src = meta.createSpan({ cls: 'toss-source' });
+      const icon = src.createSpan({ cls: 'toss-source-icon' });
+      setIconSafe(icon, 'folder', '');
+      src.createSpan({ text: folderOf(doc.path) });
+    }
     for (const tag of doc.tags) meta.createSpan({ cls: 'toss-tag', text: '#' + tag });
     if (result && result.exact < 0.5) meta.createSpan({ cls: 'toss-score', text: '≈ ' + Math.round(Math.min(1, result.score) * 100) + '%' });
 
@@ -1505,6 +1522,15 @@ class NoteModal extends Modal {
 
     // Kein Speichern-Knopf: gespeichert wird beim Schließen.
     const markDirty = () => { this.tossDirty = true; };
+
+    if (!this.tossIndex.isOwn(file)) {
+      // Hier legt Toss kein created an und laesst fremdes Frontmatter stehen -
+      // das gehoert an die Stelle, an der man die Notiz bearbeitet.
+      const hint = root.createDiv('toss-foreign-hint');
+      const icon = hint.createSpan({ cls: 'toss-source-icon' });
+      setIconSafe(icon, 'folder', '');
+      hint.createSpan({ text: 'Keine Toss-Notiz — liegt in ' + folderOf(doc.path) });
+    }
 
     const bodyInput = root.createEl('textarea', { cls: 'toss-edit-body' });
     bodyInput.value = parsed.body.trim();

@@ -139,6 +139,38 @@
 .toss-card:hover { border-color: var(--background-modifier-border-hover); }
 /* Zuletzt geoeffnet: dezenter Rahmen, damit die Karte wiederzufinden ist. */
 .toss-card.is-last { border-color: var(--interactive-accent); }
+
+/*
+ * Notizen, die Toss nur mitindiziert hat: feine Schraffur statt glatter
+ * Flaeche. Das unterscheidet sie auf einen Blick, ohne eine Farbe zu belegen -
+ * Farben sind hier schon fuer Aehnlichkeit und Auswahl vergeben. Die Linien
+ * nutzen die Rahmenfarbe des Themes, sind also in Hell und Dunkel gleich leise.
+ */
+.toss-card.is-foreign {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--background-modifier-border) 0 1px,
+    transparent 1px 10px
+  );
+}
+.toss-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-style: italic;
+}
+.toss-source-icon { display: inline-flex; }
+.toss-source-icon .svg-icon { width: 11px; height: 11px; }
+
+.toss-foreign-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  font-size: 0.78em;
+  color: var(--text-muted);
+}
+.toss-foreign-hint .svg-icon { width: 13px; height: 13px; }
 .toss-card.is-new { animation: toss-flash 1.2s ease-out; }
 @keyframes toss-flash {
   from { background: var(--interactive-accent); color: var(--text-on-accent); }

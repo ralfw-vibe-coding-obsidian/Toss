@@ -171,6 +171,12 @@ Toss ist ein gewöhnliches Community-Plugin und läuft in jedem Vault. Es legt
 seinen Ordner beim ersten „Toss“ an und rührt nichts an, was es nicht selbst
 geschrieben hat.
 
+Notizen, die Toss nur mitindiziert hat, sind in der Liste **fein schraffiert**
+statt glatt grau, und in der Metazeile steht ihr Ordner. Im Overlay weist eine
+Zeile darauf hin, dass es keine Toss-Notiz ist — dort gelten beim Speichern ja
+andere Regeln (siehe *Dateiformat*). Farbe bleibt bewusst frei: die ist schon
+für Ähnlichkeit und für die zuletzt geöffnete Karte vergeben.
+
 Standardmäßig sieht Toss **nur seinen eigenen Ordner** — in einem bestehenden
 Vault stört es damit niemanden. Wer *Ganzen Vault durchsuchen* einschaltet,
 bekommt alle Markdown-Notizen in Suche und Ähnlichkeit; neue Notizen landen

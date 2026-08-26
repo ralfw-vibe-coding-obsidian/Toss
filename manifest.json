@@ -1,7 +1,7 @@
 {
   "id": "toss",
   "name": "Toss",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "minAppVersion": "1.4.0",
   "description": "Notizen einfach reinwerfen. Toss findet die Verbindungen selbst - per lexikalischer und semantischer Aehnlichkeit, komplett lokal.",
   "author": "Ralf Westphal",
