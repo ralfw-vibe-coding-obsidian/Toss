@@ -232,7 +232,8 @@ function yamlString(s) {
 }
 
 function buildNote({ created, title, tags, body, extra }) {
-  const lines = ['---', 'created: ' + created];
+  const lines = ['---'];
+  if (created) lines.push('created: ' + created);
   if (title) lines.push('title: ' + yamlString(title));
   if (tags && tags.length) lines.push('tags: [' + tags.map(yamlString).join(', ') + ']');
   if (extra && extra.length) lines.push(...extra);   // fremde Felder bleiben erhalten
@@ -392,6 +393,13 @@ class TossIndex {
 
   get settings() { return this.plugin.settings; }
   get cachePath() { return normalizePath(this.plugin.manifest.dir + '/index.json'); }
+
+  /* Liegt die Notiz im Toss-Ordner? Unabhaengig vom Suchbereich. */
+  isOwn(file) {
+    const folder = normalizePath(this.settings.folder || 'Toss');
+    const path = typeof file === 'string' ? file : file.path;
+    return path.startsWith(folder + '/');
+  }
 
   inScope(file) {
     if (!(file instanceof TFile) || file.extension !== 'md') return false;
@@ -1299,8 +1307,13 @@ class TossView extends ItemView {
       // Zustand sofort einsammeln: der Aufrufer wartet nicht immer ab, und die
       // Felder koennen im naechsten Moment schon aus dem DOM sein.
       this.dirty = false;
+      // In fremden Notizen legt Toss kein created an, das vorher nicht da war -
+      // sonst stuenden dort zwei Anlagedaten. Titel und Tags entstehen ohnehin
+      // nur, wenn du sie selbst eintraegst.
+      const created = parsed.meta.created
+        || (this.index.isOwn(file) ? new Date(doc.created).toISOString() : '');
       const content = buildNote({
-        created: parsed.meta.created || new Date(doc.created).toISOString(),
+        created,
         title: titleInput.value.trim(),
         tags: tagEditor.getTags(),
         body: bodyInput.value,

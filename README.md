@@ -118,6 +118,21 @@ Toss verwaltet nur `created`, `title` und `tags`. **Alle anderen
 Frontmatter-Felder bleiben beim Speichern unverändert stehen** — `aliases`,
 `cssclasses`, Dataview-Felder und was sonst noch drin ist.
 
+### Warum keine `toss_`-Präfixe
+
+`tags` ist keine Plugin-Property, sondern Obsidian-Kern: Tag-Leiste, `tag:`-Suche,
+Graph, Autovervollständigung und die Tag-Pillen in der Properties-Ansicht lesen
+genau dieses Feld. Ein eigenes `toss_tags` würde Toss-Tags daraus herausschneiden
+und im Vault-weiten Betrieb zwei getrennte Tag-Welten erzeugen.
+
+`title` und `created` sind geteilte Konventionen mit derselben Bedeutung, die
+Toss ihnen gibt — *Front Matter Title*, Templater und Dataview meinen dasselbe.
+Ein Präfix machte daraus keine saubere Trennung, sondern eine Dublette.
+
+Stattdessen ist die Schreibseite abgesichert: **Toss legt in Notizen außerhalb
+seines Ordners kein `created` an**, das nicht schon da war. `title` und `tags`
+entstehen dort ohnehin nur, wenn du sie selbst einträgst.
+
 Ohne das Plugin bleibt der Vault vollständig lesbar und bearbeitbar.
 
 ## In jedem Vault
@@ -130,7 +145,8 @@ Standardmäßig sieht Toss **nur seinen eigenen Ordner** — in einem bestehende
 Vault stört es damit niemanden. Wer *Ganzen Vault durchsuchen* einschaltet,
 bekommt alle Markdown-Notizen in Suche und Ähnlichkeit; neue Notizen landen
 trotzdem weiter im Toss-Ordner. Bearbeitet man eine fremde Notiz in einer Karte,
-bleibt ihr Frontmatter erhalten (siehe oben).
+bleibt ihr Frontmatter erhalten und Toss fügt von sich aus nichts hinzu
+(siehe *Dateiformat*).
 
 Der Index liegt pro Vault im jeweiligen Plugin-Ordner. Vaults teilen also nichts
 miteinander.
