@@ -1129,7 +1129,8 @@ class TossView extends ItemView {
     if (!this.listEl) return;
     this.statusEl.setText(this.index.status + (this.index.lsa ? ` · LSA ${this.index.lsa.k}D` : ''));
     const query = this.inputEl.value.trim();
-    this.saveExpanded = null;
+    // Egal wodurch neu gerendert wird - eine offene Bearbeitung geht vorher raus.
+    if (this.saveExpanded) { const flush = this.saveExpanded; this.saveExpanded = null; flush(); }
     this.listEl.empty();
 
     if (!this.index.list.length) {
@@ -1261,14 +1262,17 @@ class TossView extends ItemView {
     /* Speichern passiert von selbst, sobald die Karte verlassen wird. */
     const save = async () => {
       if (!this.dirty) return;
-      await this.app.vault.modify(file, buildNote({
+      // Zustand sofort einsammeln: der Aufrufer wartet nicht immer ab, und die
+      // Felder koennen im naechsten Moment schon aus dem DOM sein.
+      this.dirty = false;
+      saveBtn.disabled = true;
+      const content = buildNote({
         created: parsed.meta.created || new Date(doc.created).toISOString(),
         title: titleInput.value.trim(),
         tags: tagEditor.getTags(),
         body: bodyInput.value,
-      }));
-      this.dirty = false;
-      saveBtn.disabled = true;
+      });
+      await this.app.vault.modify(file, content);
     };
     this.saveExpanded = save;
 
