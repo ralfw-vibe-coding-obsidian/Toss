@@ -1,0 +1,327 @@
+/* Toss - One Box. Mobile first, Desktop bekommt nur eine Maximalbreite. */
+
+.toss-root.view-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+.toss-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex: 0 0 auto;
+}
+.toss-brand { font-weight: 700; letter-spacing: 0.02em; }
+.toss-status { color: var(--text-faint); font-size: 0.72em; }
+.toss-version {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 0.72em;
+  font-family: var(--font-monospace);
+}
+
+/* --- Liste ------------------------------------------------------- */
+
+.toss-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 10px max(16px, env(safe-area-inset-bottom));
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  overscroll-behavior: contain;
+}
+
+.toss-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 14px 4px 6px;
+  font-size: 0.74em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toss-section:first-child { margin-top: 4px; }
+.toss-section-note { text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+
+.toss-card {
+  background: var(--background-secondary);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.toss-card:hover { border-color: var(--background-modifier-border-hover); }
+.toss-card.is-expanded { cursor: default; border-color: var(--interactive-accent); background: var(--background-primary); }
+.toss-card.is-new { animation: toss-flash 1.2s ease-out; }
+@keyframes toss-flash {
+  from { background: var(--interactive-accent); color: var(--text-on-accent); }
+  to { background: var(--background-secondary); }
+}
+
+.toss-card-title {
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.toss-card-preview {
+  color: var(--text-muted);
+  font-size: 0.88em;
+  line-height: 1.4;
+  margin-top: 3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.toss-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  font-size: 0.72em;
+  color: var(--text-faint);
+}
+.toss-tag {
+  background: var(--background-modifier-hover);
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--text-muted);
+}
+.toss-score { margin-left: auto; color: var(--text-accent); white-space: nowrap; }
+.toss-card mark { background: var(--text-highlight-bg); color: inherit; border-radius: 3px; }
+
+.toss-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 42px 24px;
+  line-height: 1.5;
+}
+.toss-empty-title { font-weight: 600; color: var(--text-normal); margin-bottom: 6px; }
+
+.toss-more {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+/* --- Aufgeklappte Karte ------------------------------------------ */
+
+.toss-edit-title { font-weight: 600; }
+.toss-edit-body {
+  width: 100%;
+  min-height: 90px;
+  resize: none;
+  margin-top: 6px;
+  font-family: var(--font-text);
+  line-height: 1.5;
+}
+/* Kopfzeile der aufgeklappten Karte: Titel links, Icons rechts. */
+.toss-edit-head { display: flex; align-items: center; gap: 6px; }
+.toss-edit-head .toss-edit-title { flex: 1 1 auto; min-width: 0; }
+.toss-edit-actions { display: flex; flex: 0 0 auto; gap: 2px; }
+
+.toss-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.toss-icon-btn .svg-icon { width: 17px; height: 17px; }
+.toss-icon-btn:hover:not(:disabled) { background: var(--background-modifier-hover); color: var(--text-normal); }
+.toss-icon-btn:disabled { opacity: 0.3; cursor: default; }
+.toss-icon-danger:hover:not(:disabled) { color: var(--text-error); }
+.toss-icon-btn.is-armed { color: var(--text-on-accent); background: var(--text-error); }
+
+/* --- Tag-Eingabe -------------------------------------------------- */
+
+.toss-tagedit { position: relative; margin-top: 6px; }
+.toss-tagedit-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 4px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  cursor: text;
+}
+.toss-tagedit-box:focus-within { border-color: var(--interactive-accent); }
+.toss-tagedit-input {
+  flex: 1 1 90px;
+  min-width: 90px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 2px 2px;
+  height: 24px;
+  font-size: 16px; /* kein Auto-Zoom auf iOS */
+}
+.toss-tagedit-input:focus { box-shadow: none; }
+
+.toss-chip-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 9px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 0.82em;
+  white-space: nowrap;
+}
+.toss-chip-x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.toss-chip-x .svg-icon { width: 12px; height: 12px; }
+.toss-chip-x:hover { background: var(--background-modifier-border); color: var(--text-normal); }
+
+.toss-suggest {
+  margin-top: 4px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+.toss-suggest-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 0.88em;
+}
+.toss-suggest-row.is-active { background: var(--background-modifier-hover); }
+.toss-suggest-icon { display: flex; color: var(--text-faint); }
+.toss-suggest-icon .svg-icon { width: 14px; height: 14px; }
+.toss-suggest-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toss-suggest-note { flex: 0 0 auto; color: var(--text-faint); font-size: 0.86em; }
+/* Neuanlage bewusst zurueckhaltend: bestehende Tags sollen attraktiver sein. */
+.toss-suggest-new .toss-suggest-label { color: var(--text-muted); font-style: italic; }
+.toss-suggest-have { cursor: default; opacity: 0.55; }
+.toss-suggest-have .toss-suggest-icon { color: var(--text-accent); }
+
+.toss-related { margin-top: 14px; border-top: 1px solid var(--background-modifier-border); padding-top: 8px; }
+.toss-related-head {
+  font-size: 0.7em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.toss-related-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.toss-related-row:hover { background: var(--background-modifier-hover); }
+.toss-related-title { flex: 1 1 auto; font-size: 0.88em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Die One Box ------------------------------------------------- */
+
+.toss-compose {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  padding: 8px 10px 10px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.toss-extra { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.toss-field { width: 100%; }
+.is-hidden { display: none !important; }
+
+.toss-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: height 120ms ease, opacity 120ms ease;
+}
+.is-composing .toss-chips { height: 28px; opacity: 1; }
+.toss-chip {
+  font-size: 0.76em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  box-shadow: none;
+  color: var(--text-muted);
+}
+.toss-chip.is-active { background: var(--interactive-accent); color: var(--text-on-accent); }
+.toss-chip-quiet { margin-left: auto; }
+.toss-hint { font-size: 0.68em; color: var(--text-faint); }
+
+.toss-inputrow { display: flex; align-items: flex-end; gap: 8px; }
+.toss-input {
+  flex: 1 1 auto;
+  resize: none;
+  min-height: 38px;
+  max-height: 35vh;
+  line-height: 1.4;
+  border-radius: 12px;
+  padding: 9px 12px;
+  font-family: var(--font-text);
+  font-size: 16px; /* verhindert den Auto-Zoom auf iOS */
+}
+.toss-send {
+  flex: 0 0 auto;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-weight: 600;
+  opacity: 0.55;
+}
+.toss-send.is-ready { background: var(--interactive-accent); color: var(--text-on-accent); opacity: 1; }
+
+/* --- Mobile ------------------------------------------------------ */
+
+.is-mobile .toss-list { padding: 6px 8px 12px; }
+.is-mobile .toss-card { padding: 12px; margin-bottom: 10px; }
+.is-mobile .toss-related-row { padding: 10px 6px; }
+.is-mobile .toss-icon-btn { width: 36px; height: 36px; }
+.is-mobile .toss-suggest-row { padding: 10px; }
+.is-mobile .toss-tagedit-box { min-height: 40px; }
+.is-mobile .toss-input { min-height: 44px; }
+.is-mobile .toss-send { height: 44px; }
