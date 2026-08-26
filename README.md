@@ -13,7 +13,11 @@ Eingabe — kein Moduswechsel:
 
 - **Tippen** zeigt sofort passende Notizen. Oben die mit den Wörtern der
   Anfrage, darunter die, die nur inhaltlich ähnlich sind.
-- **„Toss“** (oder `Cmd`/`Strg` + `Enter`) legt aus dem Getippten eine Notiz an.
+- **„Toss“** (oder `Cmd`/`Strg` + `⏎`) legt aus dem Getippten eine Notiz an.
+  `⏎` allein macht einen Zeilenumbruch, `Esc` leert das Feld.
+- Das Feld ist **drei Zeilen hoch** und lässt sich am Griff unten rechts größer
+  ziehen; solange man nicht selbst zieht, wächst es beim Schreiben mit. Das `×`
+  oben rechts im Feld leert es.
 - **Titel und Tags** sind zwei ausklappbare Zusatzfelder. Beide optional.
 - **Antippen** einer Karte klappt sie auf: Titel, Tags und Text lassen sich
   direkt bearbeiten, darunter stehen die ähnlichen Notizen.
@@ -26,12 +30,15 @@ ein Reload durch ist.
 
 ### Aufgeklappte Notiz
 
-Die Aktionen sitzen als Icons rechts neben dem Titel: speichern, in Obsidian
-öffnen, zuklappen, löschen. Löschen fragt beim ersten Tipp nach.
+Die Aktionen sitzen als Icons rechts neben dem Titel: in Obsidian öffnen (↗),
+zuklappen (×), löschen (🗑). Löschen wird beim ersten Tipp zum Fragezeichen und
+löscht erst beim zweiten; ein Klick irgendwo anders nimmt die Frage zurück.
+`Esc` klappt die Karte zu.
 
 **Gespeichert wird von selbst**, sobald die Karte verlassen wird — beim Öffnen,
-beim Zuklappen, beim Springen zu einer ähnlichen Notiz und beim Schließen der
-Ansicht. Der Speichern-Knopf bleibt für den ausdrücklichen Fall.
+beim Zuklappen, per `Esc`, beim Springen zu einer ähnlichen Notiz, beim Klick auf
+eine andere Karte, beim Tippen in der Suche und beim Schließen der Ansicht.
+Deshalb gibt es keinen Speichern-Knopf.
 
 ### Tags
 
@@ -102,7 +109,26 @@ Der Dateiname ist immer ein Zeitstempel und ändert sich nie — ein späterer T
 löst also keine Umbenennung aus. Titel und Tags dürfen fehlen; der Titel wird
 dann aus der ersten Zeile abgeleitet.
 
+Toss verwaltet nur `created`, `title` und `tags`. **Alle anderen
+Frontmatter-Felder bleiben beim Speichern unverändert stehen** — `aliases`,
+`cssclasses`, Dataview-Felder und was sonst noch drin ist.
+
 Ohne das Plugin bleibt der Vault vollständig lesbar und bearbeitbar.
+
+## In jedem Vault
+
+Toss ist ein gewöhnliches Community-Plugin und läuft in jedem Vault. Es legt
+seinen Ordner beim ersten „Toss“ an und rührt nichts an, was es nicht selbst
+geschrieben hat.
+
+Standardmäßig sieht Toss **nur seinen eigenen Ordner** — in einem bestehenden
+Vault stört es damit niemanden. Wer *Ganzen Vault durchsuchen* einschaltet,
+bekommt alle Markdown-Notizen in Suche und Ähnlichkeit; neue Notizen landen
+trotzdem weiter im Toss-Ordner. Bearbeitet man eine fremde Notiz in einer Karte,
+bleibt ihr Frontmatter erhalten (siehe oben).
+
+Der Index liegt pro Vault im jeweiligen Plugin-Ordner. Vaults teilen also nichts
+miteinander.
 
 Der Suchindex liegt als `index.json` im Plugin-Ordner, **nicht** im Vault. Er ist
 nur ein Cache und darf jederzeit gelöscht werden.

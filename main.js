@@ -167,8 +167,13 @@ function debounce(fn, wait) {
  * Frontmatter. Ohne Toss bleibt der Vault damit vollstaendig lesbar.
  * ------------------------------------------------------------------ */
 
+const MANAGED_KEYS = new Set(['title', 'created', 'tags', 'tag']);
+
 function parseNote(content) {
-  const meta = { title: '', tags: [], created: '' };
+  // extra: alle Frontmatter-Zeilen, die Toss nicht selbst verwaltet. Sie werden
+  // beim Speichern unveraendert zurueckgeschrieben - sonst wuerde das Bearbeiten
+  // einer fremden Notiz deren aliases, cssclasses, Dataview-Felder ... loeschen.
+  const meta = { title: '', tags: [], created: '', extra: [] };
   let body = content;
 
   if (content.startsWith('---')) {
@@ -176,22 +181,29 @@ function parseNote(content) {
     if (end !== -1) {
       const raw = content.slice(content.indexOf('\n') + 1, end);
       body = content.slice(end + 4).replace(/^\r?\n/, '');
+      let mode = 'foreign';   // in welchem Schluessel stehen wir gerade?
       let listKey = null;
       for (const line of raw.split(/\r?\n/)) {
         const item = line.match(/^\s*-\s+(.*)$/);
-        if (item && listKey) {
-          const v = unquote(item[1]);
-          if (v) meta[listKey].push(v);
+        if (item) {
+          if (mode === 'managed') {
+            if (listKey) { const v = unquote(item[1]); if (v) meta[listKey].push(v); }
+          } else if (line.trim()) meta.extra.push(line);
           continue;
         }
         const kv = line.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
-        if (!kv) continue;
+        if (!kv) {
+          if (mode === 'foreign' && line.trim()) meta.extra.push(line);
+          continue;
+        }
         const key = kv[1].toLowerCase();
         const value = kv[2].trim();
         listKey = null;
+        if (!MANAGED_KEYS.has(key)) { mode = 'foreign'; meta.extra.push(line); continue; }
+        mode = 'managed';
         if (key === 'title') meta.title = unquote(value);
         else if (key === 'created') meta.created = unquote(value);
-        else if (key === 'tags' || key === 'tag') {
+        else {
           if (!value) { listKey = 'tags'; meta.tags = []; }
           else if (value.startsWith('[')) {
             meta.tags = value.replace(/^\[|\]$/g, '').split(',').map(unquote).filter(Boolean);
@@ -219,10 +231,11 @@ function yamlString(s) {
   return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
-function buildNote({ created, title, tags, body }) {
+function buildNote({ created, title, tags, body, extra }) {
   const lines = ['---', 'created: ' + created];
   if (title) lines.push('title: ' + yamlString(title));
   if (tags && tags.length) lines.push('tags: [' + tags.map(yamlString).join(', ') + ']');
+  if (extra && extra.length) lines.push(...extra);   // fremde Felder bleiben erhalten
   lines.push('---', '');
   return lines.join('\n') + String(body).trim() + '\n';
 }
@@ -775,6 +788,12 @@ function accumulate(postings, vec, out) {
  * an. Kein Moduswechsel. Darueber die Ergebnisse bzw. der Feed.
  * ------------------------------------------------------------------ */
 
+/* setIcon laesst das Element leer, wenn Lucide den Namen nicht kennt. */
+function setIconSafe(el, name, fallbackText) {
+  setIcon(el, name);
+  if (!el.firstChild && fallbackText) el.setText(fallbackText);
+}
+
 function relTime(ts) {
   const diff = Date.now() - ts;
   const min = Math.floor(diff / 60000);
@@ -982,7 +1001,13 @@ class TagEditor {
       this.remove(this.tags[this.tags.length - 1]);
       return;
     }
-    if (evt.key === 'Escape') { this.open = false; this.renderSuggestions(); }
+    if (evt.key === 'Escape' && this.open && this.rows.length) {
+      // Nur die Vorschlagsliste schliessen - das Escape der Karte kommt danach.
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.open = false;
+      this.renderSuggestions();
+    }
   }
 }
 
@@ -1016,16 +1041,21 @@ class TossView extends ItemView {
     const compose = root.createDiv('toss-compose');
 
     const row = compose.createDiv('toss-inputrow');
-    this.inputEl = row.createEl('textarea', {
+    const wrap = row.createDiv('toss-input-wrap');
+    this.inputEl = wrap.createEl('textarea', {
       cls: 'toss-input',
-      attr: { rows: '1', placeholder: 'Reinwerfen oder suchen …', enterkeyhint: 'enter' },
+      attr: { rows: '3', placeholder: 'Reinwerfen oder suchen …', enterkeyhint: 'enter' },
     });
+    this.clearEl = wrap.createEl('button', {
+      cls: 'toss-input-clear',
+      attr: { 'aria-label': 'Eingabe löschen', title: 'Eingabe löschen' },
+    });
+    setIcon(this.clearEl, 'x');
     this.sendEl = row.createEl('button', { cls: 'toss-send', text: 'Toss' });
 
     const chips = compose.createDiv('toss-chips');
     this.titleChip = chips.createEl('button', { cls: 'toss-chip', text: '＋ Titel' });
     this.tagsChip = chips.createEl('button', { cls: 'toss-chip', text: '＃ Tags' });
-    this.clearChip = chips.createEl('button', { cls: 'toss-chip toss-chip-quiet', text: 'Leeren' });
     chips.createSpan({ cls: 'toss-hint', text: Platform.isMobile ? '' : 'Cmd/Strg + ⏎' });
 
     this.extraEl = compose.createDiv('toss-extra');
@@ -1039,7 +1069,7 @@ class TossView extends ItemView {
 
     this.titleChip.onclick = () => { this.toggleExtra('title'); };
     this.tagsChip.onclick = () => { this.toggleExtra('tags'); };
-    this.clearChip.onclick = () => { this.clearCompose(); this.inputEl.focus(); };
+    this.clearEl.onclick = () => { this.clearCompose(); this.inputEl.focus(); };
     this.sendEl.onclick = () => this.toss();
 
     this.inputEl.addEventListener('input', () => { this.autoGrow(); this.syncChips(); this.searchSoon(); });
@@ -1049,6 +1079,16 @@ class TossView extends ItemView {
       if (evt.key === 'Enter' && (evt.metaKey || evt.ctrlKey)) { evt.preventDefault(); this.toss(); }
       if (evt.key === 'Escape') { this.clearCompose(); }
     });
+
+    /* Zieht der Nutzer das Feld groesser, hat das Vorrang vor autoGrow. */
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObs = new ResizeObserver(() => {
+        if (this.autoGrowing) { this.autoGrowing = false; return; }
+        this.userResized = true;
+      });
+      this.resizeObs.observe(this.inputEl);
+      this.register(() => this.resizeObs.disconnect());
+    }
 
     this.register(this.index.onChange(() => this.onIndexChanged()));
     this.syncChips();
@@ -1064,9 +1104,11 @@ class TossView extends ItemView {
   /* --- Eingabe ---------------------------------------------------- */
 
   autoGrow() {
+    if (this.userResized) return;   // von Hand gezogene Hoehe nicht ueberschreiben
     const el = this.inputEl;
+    this.autoGrowing = true;
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.35) + 'px';
+    el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.5) + 'px';
   }
 
   toggleExtra(which) {
@@ -1096,8 +1138,8 @@ class TossView extends ItemView {
   }
 
   syncChips() {
-    const active = this.inputEl.value.length > 0 || document.activeElement === this.inputEl;
-    this.contentEl.toggleClass('is-composing', active);
+    const filled = this.inputEl.value.length > 0;
+    this.clearEl.toggleClass('is-hidden', !filled);
     this.sendEl.toggleClass('is-ready', this.inputEl.value.trim().length > 0);
   }
 
@@ -1234,13 +1276,12 @@ class TossView extends ItemView {
       setIcon(b, icon);
       return b;
     };
-    const saveBtn = iconBtn('save', 'Speichern');
     const openBtn = iconBtn('external-link', 'In Obsidian öffnen');
-    const closeBtn = iconBtn('chevron-up', 'Zuklappen');
+    const closeBtn = iconBtn('x', 'Zuklappen');
     const delBtn = iconBtn('trash-2', 'Löschen', 'toss-icon-danger');
-    saveBtn.disabled = true;
 
-    const markDirty = () => { this.dirty = true; saveBtn.disabled = false; };
+    // Kein Speichern-Knopf: gespeichert wird beim Verlassen der Karte.
+    const markDirty = () => { this.dirty = true; };
 
     const tagEditor = new TagEditor(card, this.plugin, {
       placeholder: 'Tag tippen oder auswählen …',
@@ -1265,18 +1306,26 @@ class TossView extends ItemView {
       // Zustand sofort einsammeln: der Aufrufer wartet nicht immer ab, und die
       // Felder koennen im naechsten Moment schon aus dem DOM sein.
       this.dirty = false;
-      saveBtn.disabled = true;
       const content = buildNote({
         created: parsed.meta.created || new Date(doc.created).toISOString(),
         title: titleInput.value.trim(),
         tags: tagEditor.getTags(),
         body: bodyInput.value,
+        extra: parsed.meta.extra,
       });
       await this.app.vault.modify(file, content);
     };
     this.saveExpanded = save;
 
-    saveBtn.onclick = async (evt) => { stop(evt); await save(); new Notice('Gespeichert'); };
+    const collapse = async () => { await save(); this.expandedPath = null; this.render(); };
+
+    /* Escape klappt zu - die Vorschlagsliste der Tags fängt ihr Escape selbst ab. */
+    card.addEventListener('keydown', (evt) => {
+      if (evt.key !== 'Escape') return;
+      evt.preventDefault();
+      evt.stopPropagation();
+      collapse();
+    });
 
     openBtn.onclick = async (evt) => {
       stop(evt);
@@ -1284,32 +1333,37 @@ class TossView extends ItemView {
       this.app.workspace.getLeaf(Platform.isMobile ? true : 'tab').openFile(file);
     };
 
-    closeBtn.onclick = async (evt) => {
-      stop(evt);
-      await save();
-      this.expandedPath = null;
-      this.render();
+    closeBtn.onclick = async (evt) => { stop(evt); await collapse(); };
+
+    /*
+     * Löschen fragt nach: erster Klick macht ein "?" daraus, der zweite löscht.
+     * Ein Klick irgendwo anders nimmt die Frage zurück.
+     */
+    let armed = false;
+    let onOutside = null;
+    const disarm = () => {
+      if (!armed) return;
+      armed = false;
+      if (onOutside) { document.removeEventListener('click', onOutside, true); onOutside = null; }
+      delBtn.removeClass('is-armed');
+      setIcon(delBtn, 'trash-2');
+      delBtn.setAttr('aria-label', 'Löschen');
+      delBtn.setAttr('title', 'Löschen');
     };
 
-    let armed = false;
     delBtn.onclick = async (evt) => {
       stop(evt);
       if (!armed) {
         armed = true;
         delBtn.addClass('is-armed');
-        setIcon(delBtn, 'alert-triangle');
+        setIconSafe(delBtn, 'help-circle', '?');
         delBtn.setAttr('aria-label', 'Wirklich löschen?');
         delBtn.setAttr('title', 'Wirklich löschen?');
-        window.setTimeout(() => {
-          if (!armed) return;
-          armed = false;
-          delBtn.removeClass('is-armed');
-          setIcon(delBtn, 'trash-2');
-          delBtn.setAttr('aria-label', 'Löschen');
-          delBtn.setAttr('title', 'Löschen');
-        }, 3000);
+        onOutside = (e) => { if (!delBtn.contains(e.target)) disarm(); };
+        document.addEventListener('click', onOutside, true);
         return;
       }
+      disarm();
       this.dirty = false;
       this.saveExpanded = null;
       this.expandedPath = null;
@@ -1416,7 +1470,7 @@ class TossPlugin extends Plugin {
     this.flushSoon = debounce(() => this.flushPending(), 400);
 
     this.registerView(VIEW_TYPE_TOSS, (leaf) => new TossView(leaf, this));
-    this.addRibbonIcon('zap', 'Toss', () => this.activateView());
+    this.addRibbonIcon('zap', 'Toss – Einfach Notizen reinwerfen', () => this.activateView());
     this.addSettingTab(new TossSettingTab(this.app, this));
 
     this.addCommand({ id: 'open', name: 'Toss öffnen', callback: () => this.activateView() });

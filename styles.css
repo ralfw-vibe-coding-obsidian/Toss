@@ -275,12 +275,7 @@
   align-items: center;
   gap: 6px;
   margin-top: 6px;
-  height: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: height 120ms ease, opacity 120ms ease;
 }
-.is-composing .toss-chips { height: 28px; opacity: 1; }
 .toss-chip {
   font-size: 0.76em;
   padding: 3px 10px;
@@ -290,21 +285,40 @@
   color: var(--text-muted);
 }
 .toss-chip.is-active { background: var(--interactive-accent); color: var(--text-on-accent); }
-.toss-chip-quiet { margin-left: auto; }
-.toss-hint { font-size: 0.68em; color: var(--text-faint); }
+.toss-hint { margin-left: auto; font-size: 0.68em; color: var(--text-faint); }
 
-.toss-inputrow { display: flex; align-items: flex-end; gap: 8px; }
+.toss-inputrow { display: flex; align-items: flex-start; gap: 8px; }
+.toss-input-wrap { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
 .toss-input {
-  flex: 1 1 auto;
-  resize: none;
-  min-height: 38px;
-  max-height: 35vh;
-  line-height: 1.4;
+  width: 100%;
+  /* Drei Zeilen von Anfang an, groesser ziehbar am Griff unten rechts. */
+  min-height: calc(3 * 1.45em + 20px);
+  max-height: none;
+  resize: vertical;
+  line-height: 1.45;
   border-radius: 12px;
-  padding: 9px 12px;
+  padding: 9px 34px 9px 12px;
   font-family: var(--font-text);
   font-size: 16px; /* verhindert den Auto-Zoom auf iOS */
 }
+.toss-input-clear {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.toss-input-clear .svg-icon { width: 14px; height: 14px; }
+.toss-input-clear:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
 .toss-send {
   flex: 0 0 auto;
   height: 38px;
@@ -323,5 +337,5 @@
 .is-mobile .toss-icon-btn { width: 36px; height: 36px; }
 .is-mobile .toss-suggest-row { padding: 10px; }
 .is-mobile .toss-tagedit-box { min-height: 40px; }
-.is-mobile .toss-input { min-height: 44px; }
 .is-mobile .toss-send { height: 44px; }
+.is-mobile .toss-input-clear { width: 28px; height: 28px; }
