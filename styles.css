@@ -115,7 +115,13 @@
   color: var(--text-muted);
 }
 .toss-section:first-child { margin-top: 4px; }
-.toss-section-note { text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+.toss-section-note {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
 
 .toss-card {
   background: var(--background-secondary);
@@ -127,6 +133,8 @@
   transition: border-color 120ms ease, background 120ms ease;
 }
 .toss-card:hover { border-color: var(--background-modifier-border-hover); }
+/* Zuletzt geoeffnet: dezenter Rahmen, damit die Karte wiederzufinden ist. */
+.toss-card.is-last { border-color: var(--interactive-accent); }
 .toss-card.is-expanded {
   cursor: default;
   border-color: var(--interactive-accent);

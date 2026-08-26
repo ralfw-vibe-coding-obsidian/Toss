@@ -37,6 +37,11 @@ ist.
 
 ### Layout und Zoom
 
+Neben jeder Abschnittsüberschrift steht klein die Zahl der dort sichtbaren
+Notizen; im Feed als `40 von 128`, wenn nicht alle geladen sind. Die zuletzt
+geöffnete Karte behält einen dünnen Rahmen — so findet man sie nach dem
+Zuklappen zwischen vielen Treffern wieder.
+
 Der Zoom (`− 100 % +`, in 10er-Schritten von 50 bis 200) wirkt auf alles unter
 der Kopfzeile. Ein Klick auf den Prozentwert setzt auf 100 % zurück.
 

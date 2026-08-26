@@ -1316,8 +1316,9 @@ class TossView extends ItemView {
 
   renderFeed() {
     const docs = this.index.list;
-    this.section('Zuletzt', `${docs.length}`);
-    for (const doc of docs.slice(0, this.feedLimit)) this.renderCard(doc, null, null);
+    const shown = Math.min(this.feedLimit, docs.length);
+    this.section('Zuletzt', docs.length > shown ? `${shown} von ${docs.length}` : String(shown));
+    for (const doc of docs.slice(0, shown)) this.renderCard(doc, null, null);
     if (docs.length > this.feedLimit) {
       const more = this.listEl.createEl('button', { cls: 'toss-more', text: `${docs.length - this.feedLimit} weitere anzeigen` });
       more.onclick = () => { this.feedLimit += 40; this.render(); };
@@ -1334,7 +1335,8 @@ class TossView extends ItemView {
       for (const r of hits) this.renderCard(r.doc, r, re);
     }
     if (similar.length) {
-      this.section('Auch ähnlich', this.index.lsa ? 'semantisch' : 'lexikalisch');
+      // Ob semantisch gesucht wird, steht in der Kopfzeile - hier zaehlt die Menge.
+      this.section('Auch ähnlich', String(similar.length));
       for (const r of similar) this.renderCard(r.doc, r, re);
     }
     if (!hits.length && !similar.length) {
@@ -1354,6 +1356,9 @@ class TossView extends ItemView {
     const card = this.listEl.createDiv('toss-card');
     card.dataset.path = doc.path;
     if (this.expandedPath === doc.path) { this.fillExpanded(card, doc); return; }
+    // Zuletzt geoeffnete Karte bleibt markiert - sonst findet man sie nach dem
+    // Zuklappen zwischen vielen Treffern nicht wieder.
+    card.toggleClass('is-last', this.lastOpenedPath === doc.path);
 
     const title = card.createDiv('toss-card-title');
     highlightInto(title, doc.title, re);
@@ -1373,6 +1378,7 @@ class TossView extends ItemView {
     card.onclick = () => {
       this.expandedPath = doc.path;
       this.justExpanded = doc.path;
+      this.lastOpenedPath = doc.path;
       this.render();
     };
   }
@@ -1520,6 +1526,7 @@ class TossView extends ItemView {
         await save();
         this.expandedPath = r.doc.path;
         this.justExpanded = r.doc.path;
+        this.lastOpenedPath = r.doc.path;
         this.render();
       };
     }
