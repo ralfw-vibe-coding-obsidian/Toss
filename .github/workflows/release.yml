@@ -1,0 +1,39 @@
+name: Release
+
+# Ein Tag genuegt: "git tag 0.6.3 && git push origin 0.6.3".
+# Der Tag muss exakt der Version in manifest.json entsprechen - ohne "v"
+# davor, sonst findet BRAT das Release nicht.
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag gegen manifest.json pruefen
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION=$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' manifest.json | head -1)
+          echo "Tag: $TAG, manifest.json: $VERSION"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::Tag $TAG passt nicht zur Version $VERSION in manifest.json"
+            exit 1
+          fi
+
+      # Kein Build-Schritt: Obsidian laedt main.js direkt.
+      - name: Release mit den drei Plugin-Dateien anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            manifest.json main.js styles.css
