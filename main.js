@@ -1370,11 +1370,19 @@ class TossView extends ItemView {
     for (const tag of doc.tags) meta.createSpan({ cls: 'toss-tag', text: '#' + tag });
     if (result && result.exact < 0.5) meta.createSpan({ cls: 'toss-score', text: '≈ ' + Math.round(Math.min(1, result.score) * 100) + '%' });
 
-    card.onclick = () => { this.expandedPath = doc.path; this.render(); };
+    card.onclick = () => {
+      this.expandedPath = doc.path;
+      this.justExpanded = doc.path;
+      this.render();
+    };
   }
 
   async fillExpanded(card, doc) {
     card.addClass('is-expanded');
+    // Ohne Fokus in der Karte kaeme kein Escape hier an - er bliebe im Suchfeld.
+    // tabindex -1 macht sie fokussierbar, ohne sie in die Tab-Reihenfolge zu legen
+    // und ohne auf dem Telefon die Tastatur aufzuklappen.
+    card.setAttr('tabindex', '-1');
     const file = this.app.vault.getAbstractFileByPath(doc.path);
     if (!(file instanceof TFile)) { this.expandedPath = null; return; }
 
@@ -1511,8 +1519,15 @@ class TossView extends ItemView {
         stop(evt);
         await save();
         this.expandedPath = r.doc.path;
+        this.justExpanded = r.doc.path;
         this.render();
       };
+    }
+
+    // Nur beim frischen Aufklappen den Fokus holen, nicht bei jedem Neuaufbau.
+    if (this.justExpanded === doc.path) {
+      this.justExpanded = null;
+      card.focus();
     }
   }
 

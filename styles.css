@@ -127,7 +127,12 @@
   transition: border-color 120ms ease, background 120ms ease;
 }
 .toss-card:hover { border-color: var(--background-modifier-border-hover); }
-.toss-card.is-expanded { cursor: default; border-color: var(--interactive-accent); background: var(--background-primary); }
+.toss-card.is-expanded {
+  cursor: default;
+  border-color: var(--interactive-accent);
+  background: var(--background-primary);
+  outline: none;   /* der Akzentrahmen zeigt den Fokus schon an */
+}
 .toss-card.is-new { animation: toss-flash 1.2s ease-out; }
 @keyframes toss-flash {
   from { background: var(--interactive-accent); color: var(--text-on-accent); }
