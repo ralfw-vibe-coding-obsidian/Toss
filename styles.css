@@ -90,23 +90,22 @@
   width: 100%;
   max-width: 760px;
   margin: 0 auto;
-  column-gap: 10px;
 }
 
-.toss-layout-two .toss-list { max-width: 1200px; columns: 240px 2; }
+/*
+ * Nur die Kartengruppen sind mehrspaltig, nicht die ganze Liste. Damit stehen
+ * Ueberschriften und "mehr anzeigen" ausserhalb des Spaltenkontexts und
+ * brauchen kein "column-span: all" - das setzt WebKit anders als Chromium und
+ * schob die Ueberschrift auf dem iPhone unter die Karten.
+ */
+.toss-group { column-gap: 10px; }
+.toss-layout-two .toss-group { columns: 240px 2; }
+.toss-layout-auto .toss-group { columns: 260px; }
+.toss-layout-two .toss-list { max-width: 1200px; }
 .toss-layout-two .toss-compose { max-width: 1200px; }
-.toss-layout-auto .toss-list { max-width: none; columns: 260px; }
+.toss-layout-auto .toss-list { max-width: none; }
 .toss-layout-auto .toss-compose { max-width: none; }
 
-/*
- * Ueberschriften laufen ueber alle Spalten - das ist gewollt, sie trennen die
- * Abschnitte. Die aufgeklappte Karte darf das ausdruecklich NICHT: ein
- * spannendes Element zerteilt den Spaltenfluss, alles davor wird zu einem
- * Block zusammengezogen und die Karte rutscht darunter. Sie bleibt deshalb in
- * ihrer Spalte stehen, genau dort, wo man sie angeklickt hat.
- */
-.toss-section,
-.toss-more { column-span: all; }
 .toss-card { break-inside: avoid; -webkit-column-break-inside: avoid; }
 
 .toss-section {

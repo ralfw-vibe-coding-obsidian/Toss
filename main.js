@@ -1294,6 +1294,7 @@ class TossView extends ItemView {
     this.statusEl.setText(this.index.status + (this.index.lsa ? ` · LSA ${this.index.lsa.k}D` : ''));
     const query = this.inputEl.value.trim();
     this.listEl.empty();
+    this.groupEl = null;
 
     if (!this.index.list.length) {
       const empty = this.listEl.createDiv('toss-empty');
@@ -1346,10 +1347,21 @@ class TossView extends ItemView {
     }
   }
 
+  /*
+   * Ueberschrift und danach ein eigener Spalten-Container fuer die Karten
+   * dieses Abschnitts.
+   *
+   * Vorher stand die Ueberschrift *im* Spaltenfluss und wurde per
+   * "column-span: all" ueber alle Spalten gezogen. Chromium stellt sie damit
+   * an die richtige Stelle, WebKit auf dem iPhone haengte sie unter die Karten.
+   * Ausserhalb des Spaltenkontexts stellt sich die Frage gar nicht - und jeder
+   * Abschnitt balanciert seine Spalten fuer sich.
+   */
   section(label, note) {
     const el = this.listEl.createDiv('toss-section');
     el.createSpan({ text: label });
     if (note) el.createSpan({ cls: 'toss-section-note', text: note });
+    this.groupEl = this.listEl.createDiv('toss-group');
   }
 
   openNote(doc) {
@@ -1365,7 +1377,7 @@ class TossView extends ItemView {
   }
 
   renderCard(doc, result, re) {
-    const card = this.listEl.createDiv('toss-card');
+    const card = (this.groupEl || this.listEl).createDiv('toss-card');
     card.dataset.path = doc.path;
     // Zuletzt geoeffnete Karte bleibt markiert - sonst findet man sie nach dem
     // Schliessen des Overlays zwischen vielen Treffern nicht wieder.
