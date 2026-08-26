@@ -886,7 +886,11 @@ class TagEditor {
     for (const tag of this.tags) {
       const chip = this.box.createDiv('toss-chip-tag');
       chip.createSpan({ text: '#' + tag });
-      const x = chip.createEl('button', { cls: 'toss-chip-x', attr: { 'aria-label': `#${tag} entfernen`, title: 'Entfernen' } });
+      const x = chip.createEl('button', {
+        cls: 'toss-chip-x',
+        // Ebenfalls aus der Tab-Reihenfolge: im Feld entfernt Backspace den letzten Chip.
+        attr: { 'aria-label': `#${tag} entfernen`, title: 'Entfernen', tabindex: '-1' },
+      });
       setIcon(x, 'x');
       x.addEventListener('mousedown', (evt) => evt.preventDefault());
       x.addEventListener('click', (evt) => { evt.preventDefault(); evt.stopPropagation(); this.remove(tag); });
@@ -1048,7 +1052,8 @@ class TossView extends ItemView {
     });
     this.clearEl = wrap.createEl('button', {
       cls: 'toss-input-clear',
-      attr: { 'aria-label': 'Eingabe löschen', title: 'Eingabe löschen' },
+      // tabindex -1: Tab soll vom Textfeld direkt auf "Toss" springen.
+      attr: { 'aria-label': 'Eingabe löschen', title: 'Eingabe löschen', tabindex: '-1' },
     });
     setIcon(this.clearEl, 'x');
     this.sendEl = row.createEl('button', { cls: 'toss-send', text: 'Toss' });
