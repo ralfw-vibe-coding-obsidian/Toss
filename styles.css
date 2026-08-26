@@ -155,20 +155,24 @@
 
 /* --- Tag-Eingabe -------------------------------------------------- */
 
-.toss-tagedit { position: relative; margin-top: 6px; }
+.toss-tagedit { position: relative; margin-top: 4px; }
 .toss-tagedit-box {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  min-height: 34px;
-  padding: 4px 6px;
-  border: 1px solid var(--background-modifier-border);
+  min-height: 32px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--background-primary);
+  background: transparent;
   cursor: text;
 }
-.toss-tagedit-box:focus-within { border-color: var(--interactive-accent); }
+.toss-tagedit-box:hover { border-color: var(--background-modifier-border); }
+.toss-tagedit-box:focus-within {
+  border-color: var(--interactive-accent);
+  background: var(--background-primary);
+}
 .toss-tagedit-input {
   flex: 1 1 90px;
   min-width: 90px;
@@ -266,26 +270,26 @@
   margin: 0 auto;
 }
 
-.toss-extra { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .toss-field { width: 100%; }
 .is-hidden { display: none !important; }
 
-.toss-chips {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-}
-.toss-chip {
-  font-size: 0.76em;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--background-modifier-hover);
+/*
+ * Titel und Tags stehen offen da, halten sich aber zurueck: kein Rahmen, kein
+ * Hintergrund, bis man sie anfasst. Sie sollen als Angebot lesbar sein, nicht
+ * als auszufuellendes Formular.
+ */
+.toss-compose-title {
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
   box-shadow: none;
-  color: var(--text-muted);
+  font-weight: 600;
 }
-.toss-chip.is-active { background: var(--interactive-accent); color: var(--text-on-accent); }
-.toss-hint { margin-left: auto; font-size: 0.68em; color: var(--text-faint); }
+.toss-compose-title:hover { border-color: var(--background-modifier-border); }
+.toss-compose-title:focus { border-color: var(--interactive-accent); background: var(--background-primary); }
 
 .toss-inputrow { display: flex; align-items: flex-start; gap: 8px; }
 .toss-input-wrap { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }

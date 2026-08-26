@@ -1044,6 +1044,12 @@ class TossView extends ItemView {
     /* Die One Box sitzt oben: erst schreiben, darunter waechst das Ergebnis. */
     const compose = root.createDiv('toss-compose');
 
+    /* Titel und Tags stehen offen da - unaufdringlich, aber ohne Ratespiel. */
+    this.titleEl = compose.createEl('input', {
+      cls: 'toss-compose-title',
+      attr: { type: 'text', placeholder: 'Titel (optional)' },
+    });
+
     const row = compose.createDiv('toss-inputrow');
     const wrap = row.createDiv('toss-input-wrap');
     this.inputEl = wrap.createEl('textarea', {
@@ -1056,32 +1062,26 @@ class TossView extends ItemView {
       attr: { 'aria-label': 'Eingabe löschen', title: 'Eingabe löschen', tabindex: '-1' },
     });
     setIcon(this.clearEl, 'x');
-    this.sendEl = row.createEl('button', { cls: 'toss-send', text: 'Toss' });
+    this.sendEl = row.createEl('button', {
+      cls: 'toss-send',
+      text: 'Toss',
+      attr: { title: Platform.isMobile ? 'Notiz anlegen' : 'Notiz anlegen (Cmd/Strg + ⏎)' },
+    });
 
-    const chips = compose.createDiv('toss-chips');
-    this.titleChip = chips.createEl('button', { cls: 'toss-chip', text: '＋ Titel' });
-    this.tagsChip = chips.createEl('button', { cls: 'toss-chip', text: '＃ Tags' });
-    chips.createSpan({ cls: 'toss-hint', text: Platform.isMobile ? '' : 'Cmd/Strg + ⏎' });
-
-    this.extraEl = compose.createDiv('toss-extra');
-    this.titleEl = this.extraEl.createEl('input', { cls: 'toss-field', attr: { type: 'text', placeholder: 'Titel (optional)' } });
-    this.tagEditor = new TagEditor(this.extraEl, this.plugin, { placeholder: 'Tag tippen oder auswählen …' });
-    this.titleEl.toggleClass('is-hidden', true);
-    this.tagEditor.el.toggleClass('is-hidden', true);
-    this.extraEl.toggleClass('is-hidden', true);
+    this.tagEditor = new TagEditor(compose, this.plugin, { placeholder: '＃ Tags (optional)' });
 
     this.listEl = root.createDiv('toss-list');
 
-    this.titleChip.onclick = () => { this.toggleExtra('title'); };
-    this.tagsChip.onclick = () => { this.toggleExtra('tags'); };
     this.clearEl.onclick = () => { this.clearCompose(); this.inputEl.focus(); };
     this.sendEl.onclick = () => this.toss();
 
-    this.inputEl.addEventListener('input', () => { this.autoGrow(); this.syncChips(); this.searchSoon(); });
-    this.inputEl.addEventListener('focus', () => this.syncChips());
-    this.inputEl.addEventListener('blur', () => setTimeout(() => this.syncChips(), 150));
+    this.inputEl.addEventListener('input', () => { this.autoGrow(); this.syncInput(); this.searchSoon(); });
+    this.inputEl.addEventListener('focus', () => this.syncInput());
+    this.inputEl.addEventListener('blur', () => setTimeout(() => this.syncInput(), 150));
     this.inputEl.addEventListener('keydown', (evt) => {
-      if (evt.key === 'Enter' && (evt.metaKey || evt.ctrlKey)) { evt.preventDefault(); this.toss(); }
+      // Cmd+Enter schluckt Obsidian, bevor es hier ankommt - dafuer gibt es
+      // unten das Kommando "Notiz einwerfen" mit Mod+Enter.
+      if (evt.key === 'Enter' && evt.ctrlKey) { evt.preventDefault(); this.toss(); }
       if (evt.key === 'Escape') { this.clearCompose(); }
     });
 
@@ -1096,7 +1096,7 @@ class TossView extends ItemView {
     }
 
     this.register(this.index.onChange(() => this.onIndexChanged()));
-    this.syncChips();
+    this.syncInput();
     this.render();
     if (!Platform.isMobile) window.setTimeout(() => this.inputEl.focus(), 50);
   }
@@ -1116,41 +1116,26 @@ class TossView extends ItemView {
     el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.5) + 'px';
   }
 
-  toggleExtra(which) {
-    const target = which === 'title' ? this.titleEl : this.tagEditor.el;
-    const chip = which === 'title' ? this.titleChip : this.tagsChip;
-    const show = target.hasClass('is-hidden');
-    this.extraEl.toggleClass('is-hidden', false);
-    target.toggleClass('is-hidden', !show);
-    chip.toggleClass('is-active', show);
-    if (show) (which === 'title' ? this.titleEl : this.tagEditor).focus();
-    const bothHidden = this.titleEl.hasClass('is-hidden') && this.tagEditor.el.hasClass('is-hidden');
-    this.extraEl.toggleClass('is-hidden', bothHidden);
-  }
-
   clearCompose() {
     this.inputEl.value = '';
     this.titleEl.value = '';
     this.tagEditor.setTags([]);
-    this.titleEl.toggleClass('is-hidden', true);
-    this.tagEditor.el.toggleClass('is-hidden', true);
-    this.extraEl.toggleClass('is-hidden', true);
-    this.titleChip.toggleClass('is-active', false);
-    this.tagsChip.toggleClass('is-active', false);
     this.autoGrow();
-    this.syncChips();
+    this.syncInput();
     this.render();
   }
 
-  syncChips() {
+  syncInput() {
     const filled = this.inputEl.value.length > 0;
     this.clearEl.toggleClass('is-hidden', !filled);
     this.sendEl.toggleClass('is-ready', this.inputEl.value.trim().length > 0);
   }
 
   async toss() {
+    if (this.tossing) return;   // Strg- und Cmd-Weg duerfen sich nicht ueberholen
     const body = this.inputEl.value.trim();
     if (!body) { this.inputEl.focus(); return; }
+    this.tossing = true;
     const title = this.titleEl.value.trim();
     const tags = this.tagEditor.getTags();
     try {
@@ -1161,6 +1146,8 @@ class TossView extends ItemView {
     } catch (e) {
       console.error('[Toss]', e);
       new Notice('Notiz konnte nicht angelegt werden: ' + e.message);
+    } finally {
+      this.tossing = false;
     }
   }
 
@@ -1288,14 +1275,15 @@ class TossView extends ItemView {
     // Kein Speichern-Knopf: gespeichert wird beim Verlassen der Karte.
     const markDirty = () => { this.dirty = true; };
 
+    const bodyInput = card.createEl('textarea', { cls: 'toss-edit-body' });
+    bodyInput.value = parsed.body.trim();
+
+    // Gleiche Anordnung wie in der Eingabe oben: Titel, Text, Tags.
     const tagEditor = new TagEditor(card, this.plugin, {
-      placeholder: 'Tag tippen oder auswählen …',
+      placeholder: '＃ Tags (optional)',
       onChange: markDirty,
     });
     tagEditor.setTags(parsed.meta.tags);
-
-    const bodyInput = card.createEl('textarea', { cls: 'toss-edit-body' });
-    bodyInput.value = parsed.body.trim();
     const grow = () => { bodyInput.style.height = 'auto'; bodyInput.style.height = bodyInput.scrollHeight + 'px'; };
     window.setTimeout(grow, 0);
 
@@ -1479,6 +1467,27 @@ class TossPlugin extends Plugin {
     this.addSettingTab(new TossSettingTab(this.app, this));
 
     this.addCommand({ id: 'open', name: 'Toss öffnen', callback: () => this.activateView() });
+    /*
+     * Mod+Enter ueber Obsidians Hotkey-System: ein eigener keydown-Handler
+     * bekommt Cmd+Enter auf dem Mac nicht zu sehen. Greift nur, solange das
+     * Eingabefeld den Fokus hat, und laesst sich in den Hotkey-Einstellungen
+     * umbelegen.
+     */
+    this.addCommand({
+      id: 'toss-note',
+      name: 'Notiz einwerfen',
+      hotkeys: [{ modifiers: ['Mod'], key: 'Enter' }],
+      checkCallback: (checking) => {
+        const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_TOSS)
+          .find((l) => l.view instanceof TossView && l.view.inputEl
+            && document.activeElement === l.view.inputEl
+            && l.view.inputEl.value.trim().length > 0);
+        if (!leaf) return false;
+        if (!checking) leaf.view.toss();
+        return true;
+      },
+    });
+
     this.addCommand({
       id: 'rebuild-index',
       name: 'Index neu aufbauen',

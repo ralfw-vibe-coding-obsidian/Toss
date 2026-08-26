@@ -18,7 +18,12 @@ Eingabe — kein Moduswechsel:
 - Das Feld ist **drei Zeilen hoch** und lässt sich am Griff unten rechts größer
   ziehen; solange man nicht selbst zieht, wächst es beim Schreiben mit. Das `×`
   oben rechts im Feld leert es.
-- **Titel und Tags** sind zwei ausklappbare Zusatzfelder. Beide optional.
+- **Titel und Tags** stehen darüber und darunter — ohne Rahmen, bis man sie
+  anfasst. Beide optional, beide ignorierbar.
+
+`Cmd`/`Strg` + `⏎` hängt am Kommando **Notiz einwerfen** und ist damit unter
+*Einstellungen → Hotkeys* umbelegbar. Es greift nur, solange das Eingabefeld den
+Fokus hat.
 - **Antippen** einer Karte klappt sie auf: Titel, Tags und Text lassen sich
   direkt bearbeiten, darunter stehen die ähnlichen Notizen.
 
@@ -30,8 +35,8 @@ ein Reload durch ist.
 
 ### Aufgeklappte Notiz
 
-Die Aktionen sitzen als Icons rechts neben dem Titel: in Obsidian öffnen (↗),
-zuklappen (×), löschen (🗑). Löschen wird beim ersten Tipp zum Fragezeichen und
+Aufbau wie in der Eingabe oben: Titel, Text, Tags. Die Aktionen sitzen als Icons
+rechts neben dem Titel: in Obsidian öffnen (↗), zuklappen (×), löschen (🗑). Löschen wird beim ersten Tipp zum Fragezeichen und
 löscht erst beim zweiten; ein Klick irgendwo anders nimmt die Frage zurück.
 `Esc` klappt die Karte zu.
 
