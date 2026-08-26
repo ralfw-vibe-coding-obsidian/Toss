@@ -354,7 +354,9 @@
 }
 
 .toss-field { width: 100%; }
-.is-hidden { display: none !important; }
+/* Nur fuer Toss-eigene Elemente - ein globales .is-hidden wuerde
+   jedem Element in Obsidian mit dieser Klasse den Boden entziehen. */
+.toss-hidden { display: none !important; }
 
 /*
  * Titel und Tags stehen offen da, halten sich aber zurueck: kein Rahmen, kein

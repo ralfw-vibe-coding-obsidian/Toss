@@ -918,7 +918,7 @@ class TagEditor {
       attr: { type: 'text', placeholder: options.placeholder || 'Tag …', enterkeyhint: 'done', autocapitalize: 'none', autocorrect: 'off' },
     });
     this.suggestEl = this.el.createDiv('toss-suggest');
-    this.suggestEl.toggleClass('is-hidden', true);
+    this.suggestEl.toggleClass('toss-hidden', true);
 
     this.input.addEventListener('input', () => this.refresh());
     this.input.addEventListener('focus', () => { this.open = true; this.refresh(); });
@@ -1009,7 +1009,7 @@ class TagEditor {
   renderSuggestions() {
     this.suggestEl.empty();
     const show = this.open && this.rows.length > 0;
-    this.suggestEl.toggleClass('is-hidden', !show);
+    this.suggestEl.toggleClass('toss-hidden', !show);
     if (!show) return;
 
     this.rows.forEach((row, i) => {
@@ -1258,7 +1258,7 @@ class TossView extends ItemView {
 
   syncInput() {
     const filled = this.inputEl.value.length > 0;
-    this.clearEl.toggleClass('is-hidden', !filled);
+    this.clearEl.toggleClass('toss-hidden', !filled);
     this.sendEl.toggleClass('is-ready', this.inputEl.value.trim().length > 0);
   }
 
@@ -1353,9 +1353,15 @@ class TossView extends ItemView {
   }
 
   openNote(doc) {
-    this.lastOpenedPath = doc.path;
-    this.render();
-    new NoteModal(this, doc).open();
+    try {
+      this.lastOpenedPath = doc.path;
+      this.render();
+      new NoteModal(this, doc).open();
+    } catch (e) {
+      // Ohne das bliebe ein Klick auf eine Karte einfach wirkungslos.
+      console.error('[Toss] Overlay', e);
+      new Notice('Notiz konnte nicht geöffnet werden: ' + e.message);
+    }
   }
 
   renderCard(doc, result, re) {
@@ -1446,7 +1452,11 @@ class NoteModal extends Modal {
 
     const doc = this.doc;
     const file = this.app.vault.getAbstractFileByPath(doc.path);
-    if (!(file instanceof TFile)) { this.close(); return; }
+    if (!(file instanceof TFile)) {
+      new Notice('Notiz nicht gefunden: ' + doc.path);
+      this.close();
+      return;
+    }
 
     const content = await this.app.vault.cachedRead(file);
     const parsed = parseNote(content);
