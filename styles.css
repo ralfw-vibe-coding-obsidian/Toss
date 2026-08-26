@@ -167,6 +167,9 @@
   align-items: center;
   gap: 5px;
   margin-top: 8px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: var(--background-secondary);
   font-size: 0.78em;
   color: var(--text-muted);
 }
@@ -238,6 +241,17 @@
 /* --- Notiz-Overlay ------------------------------------------------ */
 
 .modal.toss-modal { width: min(760px, 92vw); }
+/* Fremde Notiz: dieselbe Schraffur wie auf der Karte. Zwischen den Feldern
+   sichtbar, hinter dem Text nicht - der steht auf eigenem Grund. */
+.modal.toss-modal.is-foreign {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--background-modifier-border) 0 1px,
+    transparent 1px 10px
+  );
+}
+.modal.toss-modal.is-foreign .toss-edit-body,
+.modal.toss-modal.is-foreign .toss-edit-title { background: var(--background-primary); }
 .toss-note .toss-edit-body { min-height: 160px; }
 .toss-note .toss-related { margin-top: 16px; }
 

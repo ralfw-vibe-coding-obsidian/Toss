@@ -1523,9 +1523,13 @@ class NoteModal extends Modal {
     // Kein Speichern-Knopf: gespeichert wird beim Schließen.
     const markDirty = () => { this.tossDirty = true; };
 
-    if (!this.tossIndex.isOwn(file)) {
-      // Hier legt Toss kein created an und laesst fremdes Frontmatter stehen -
-      // das gehoert an die Stelle, an der man die Notiz bearbeitet.
+    // Dieselbe Schraffur wie auf der Karte, damit die Bildsprache durchhaelt,
+    // dazu der Hinweis im Klartext: hier legt Toss kein created an und laesst
+    // fremdes Frontmatter stehen. Das gehoert an die Stelle, an der man die
+    // Notiz bearbeitet.
+    const foreign = !this.tossIndex.isOwn(file);
+    this.modalEl.toggleClass('is-foreign', foreign);
+    if (foreign) {
       const hint = root.createDiv('toss-foreign-hint');
       const icon = hint.createSpan({ cls: 'toss-source-icon' });
       setIconSafe(icon, 'folder', '');

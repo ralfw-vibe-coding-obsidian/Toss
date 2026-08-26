@@ -172,8 +172,9 @@ seinen Ordner beim ersten „Toss“ an und rührt nichts an, was es nicht selbs
 geschrieben hat.
 
 Notizen, die Toss nur mitindiziert hat, sind in der Liste **fein schraffiert**
-statt glatt grau, und in der Metazeile steht ihr Ordner. Im Overlay weist eine
-Zeile darauf hin, dass es keine Toss-Notiz ist — dort gelten beim Speichern ja
+statt glatt grau, und in der Metazeile steht ihr Ordner. Das Overlay trägt dieselbe
+Schraffur und weist zusätzlich im Klartext darauf hin, dass es keine Toss-Notiz
+ist — dort gelten beim Speichern ja
 andere Regeln (siehe *Dateiformat*). Farbe bleibt bewusst frei: die ist schon
 für Ähnlichkeit und für die zuletzt geöffnete Karte vergeben.
 
