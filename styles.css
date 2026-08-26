@@ -98,10 +98,15 @@
 .toss-layout-auto .toss-list { max-width: none; columns: 260px; }
 .toss-layout-auto .toss-compose { max-width: none; }
 
-/* Ueberschriften und die aufgeklappte Karte laufen ueber alle Spalten. */
+/*
+ * Ueberschriften laufen ueber alle Spalten - das ist gewollt, sie trennen die
+ * Abschnitte. Die aufgeklappte Karte darf das ausdruecklich NICHT: ein
+ * spannendes Element zerteilt den Spaltenfluss, alles davor wird zu einem
+ * Block zusammengezogen und die Karte rutscht darunter. Sie bleibt deshalb in
+ * ihrer Spalte stehen, genau dort, wo man sie angeklickt hat.
+ */
 .toss-section,
-.toss-more,
-.toss-card.is-expanded { column-span: all; }
+.toss-more { column-span: all; }
 .toss-card { break-inside: avoid; -webkit-column-break-inside: avoid; }
 
 .toss-section {
@@ -206,9 +211,11 @@
   line-height: 1.5;
 }
 /* Kopfzeile der aufgeklappten Karte: Titel links, Icons rechts. */
-.toss-edit-head { display: flex; align-items: center; gap: 6px; }
-.toss-edit-head .toss-edit-title { flex: 1 1 auto; min-width: 0; }
-.toss-edit-actions { display: flex; flex: 0 0 auto; gap: 2px; }
+/* In schmalen Spalten rutschen die Icons unter den Titel statt ihn zu quetschen. */
+.toss-edit-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.toss-edit-head .toss-edit-title { flex: 1 1 140px; min-width: 0; }
+.toss-edit-actions { margin-left: auto; }
+.toss-edit-actions { display: flex; flex: 0 0 auto; gap: 2px; margin-left: auto; }
 
 .toss-icon-btn {
   display: flex;

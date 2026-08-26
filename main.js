@@ -20,7 +20,7 @@ const obsidian = require('obsidian');
 const { Plugin, ItemView, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon } = obsidian;
 
 const VIEW_TYPE_TOSS = 'toss-view';
-const INDEX_VERSION = 3;
+const INDEX_VERSION = 4;
 
 /* Ab wann sich eine Dimensionsreduktion ueberhaupt lohnt. */
 const LSA_MIN_NOTES = 25;
@@ -293,7 +293,13 @@ function deriveTitle(meta, body) {
   if (meta.title) return meta.title;
   const first = body.split(/\r?\n/).find((l) => l.trim().length > 0) || '';
   const clean = first.replace(/^#+\s*/, '').replace(/^[->*\s]+/, '').trim();
-  if (clean) return clean.length > 80 ? clean.slice(0, 80) + '…' : clean;
+  if (clean) {
+    if (clean.length <= 80) return clean;
+    // Auf Wortgrenze kuerzen - sonst endet der Titel mitten im Wort und der
+    // Vorschautext darunter beginnt mit dessen Rest.
+    const cut = clean.lastIndexOf(' ', 80);
+    return clean.slice(0, cut > 40 ? cut : 80).trim() + ' …';
+  }
   return '(ohne Text)';
 }
 
@@ -487,7 +493,7 @@ class TossIndex {
     try {
       const docs = this.list.map((d) => ({
         path: d.path, mtime: d.mtime, created: d.created, title: d.title,
-        tags: d.tags, text: d.text, norm: d.norm, tf: d.tf, gf: d.gf,
+        derived: d.derived, tags: d.tags, text: d.text, norm: d.norm, tf: d.tf, gf: d.gf,
       }));
       await this.app.vault.adapter.write(this.cachePath, JSON.stringify({ version: INDEX_VERSION, docs }));
     } catch (e) {
@@ -531,6 +537,8 @@ class TossIndex {
       mtime: file.stat.mtime,
       created: meta.created ? Date.parse(meta.created) || file.stat.ctime : file.stat.ctime,
       title,
+      // Titel aus der ersten Zeile abgeleitet? Dann im Vorschautext nicht wiederholen.
+      derived: !meta.title,
       tags,
       // Originaltext fuer die Anzeige (Fundstellen brauchen echte Positionen),
       // gefaltete Fassung fuer den Abgleich.
@@ -1364,7 +1372,20 @@ class TossView extends ItemView {
     highlightInto(title, doc.title, re);
 
     // Ausschnitt um die erste Fundstelle, sonst der Anfang.
-    const text = snippet(doc.text || '', re, this.plugin.settings.previewChars);
+    let source = doc.text || '';
+    if (doc.derived) {
+      const lead = doc.title.replace(/\s*…$/, '');
+      if (lead && source.startsWith(lead)) {
+        let cut = lead.length;
+        // Sicherheitshalber nochmal auf Wortgrenze zurueck.
+        if (source[cut] && /\S/.test(source[cut])) {
+          const back = source.lastIndexOf(' ', cut);
+          if (back > 0) cut = back;
+        }
+        source = source.slice(cut).replace(/^[\s.,;:–—-]+/, '');
+      }
+    }
+    const text = snippet(source, re, this.plugin.settings.previewChars);
     if (text && text !== doc.title) {
       const preview = card.createDiv('toss-card-preview');
       highlightInto(preview, text, re);
