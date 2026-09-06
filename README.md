@@ -101,11 +101,50 @@ Vier Kanäle werden gewichtet zusammengezählt (Gewichte in den Einstellungen):
 | **Exakt** | Wörter der Anfrage, die wortwörtlich in der Notiz stehen (am Wortanfang, Endung offen: `tomate` findet `Tomaten`). |
 | **Wort** | TF-IDF-Cosinus über Wortstämme. Findet Notizen mit überlappendem Vokabular. |
 | **Zeichen** | Cosinus über Zeichen-Trigramme. Für Deutsch der wichtigste Trick: verbindet `Notizverwaltung` mit `Notiz` und übersteht Tippfehler. |
-| **Semantik** | LSA (siehe unten). Findet Notizen, die **kein einziges Wort** mit der Anfrage teilen. |
+| **Semantik** | Embeddings, sonst LSA (siehe unten). Findet Notizen, die **kein einziges Wort** mit der Anfrage teilen. |
 
 Dazu kommen kleine Boni für Tag-Treffer und für frische Notizen.
 
-### LSA statt Embeddings
+### Echte Semantik: Embeddings
+
+Standardmäßig aus. Eingeschaltet bettet Toss jede Notiz einmal in einen Vektor
+ein und vergleicht Anfragen damit — das bringt Weltwissen mit, das im eigenen
+Vault nicht steht. „müde Beine nach dem Sport" findet damit die Notiz über
+Regeneration, obwohl sie kein Wort mit der Anfrage teilt.
+
+Toss spricht die **OpenAI-Embeddings-Schnittstelle**; damit stehen mehrere Wege
+offen:
+
+| Anbieter | Adresse | Modell |
+|---|---|---|
+| OpenAI | `https://api.openai.com/v1` | `text-embedding-3-small` |
+| Mistral | `https://api.mistral.ai/v1` | `mistral-embed` |
+| LM Studio (lokal) | `http://localhost:1234/v1` | z.B. `nomic-embed-text` |
+| Ollama (lokal) | `http://localhost:11434/v1` | `nomic-embed-text` |
+
+**Dabei geht Notiztext an den eingestellten Dienst.** Bei LM Studio und Ollama
+bleibt alles auf dem eigenen Rechner — dafür ist auf dem Telefon nichts
+erreichbar. Der Schlüssel steht im Klartext in der `data.json` des Plugins.
+
+Wie es arbeitet:
+
+- **Einmal pro Notiz.** Der Vektor hängt an einem Hash des Inhalts; solange sich
+  nichts ändert, wird nichts neu abgerechnet. Neue und geänderte Notizen laufen
+  im Hintergrund nach, die Kopfzeile zeigt den Fortschritt.
+- **Anfragen werden gecacht** und erst nach einer Tippause eingebettet — nicht
+  bei jedem Zeichen. Die Trefferliste erscheint sofort lexikalisch und ordnet
+  sich neu, sobald der Vektor da ist.
+- **Gemischt möglich.** Notizen ohne Vektor nutzen weiter LSA; doppelt gezählt
+  wird nichts.
+- **„Ähnlich" braucht kein Netz** — dafür werden nur zwei fertige Vektoren
+  verglichen.
+- **Fällt sauber zurück.** Kein Schlüssel, kein Netz, Fehler beim Dienst: die
+  Suche arbeitet lokal weiter.
+
+Der Index speichert die Vektoren base64-kodiert. Mit 512 Dimensionen sind das
+rund 1,4 kB pro Notiz.
+
+### LSA als lokale Rückfallebene
 
 Die semantische Suche ist eine **Latent Semantic Analysis**, rein lokal: Die
 Term-Dokument-Matrix wird per Orthogonal-Iteration auf wenige Dimensionen
@@ -119,9 +158,8 @@ Treffer ohne gemeinsames Wort mit der Anfrage — alle neun aus dem richtigen
 Themengebiet, ohne Präzisionsverlust.
 
 **Die Grenze:** LSA kennt nur Wörter, die im eigenen Vault vorkommen. Ein
-Synonym, das nirgends steht, findet sie nicht. Genau da kämen echte Embeddings
-über eine API ins Spiel — die Schnittstelle im Code (`lsaQueryVector` /
-`docVectors`) ist so geschnitten, dass sie sich ersetzen lässt.
+Synonym, das nirgends steht, findet sie nicht — dafür gibt es die Embeddings
+oben. Ohne die bleibt LSA aber die beste lokale Näherung.
 
 LSA schaltet sich erst ab **25 Notizen und 40 mehrfach verwendeten Begriffen**
 zu. Darunter wäre eine Dimensionsreduktion reines Rauschen — sie würde
@@ -217,6 +255,20 @@ Community-Plugins* den eingeschränkten Modus ausschalten und **Toss** aktiviere
 
 Ein Build-Schritt ist in keinem Fall nötig — Obsidian lädt `main.js` direkt.
 
+### Tests
+
+```bash
+node tests/run.js
+```
+
+Kein npm, keine Abhängigkeiten. Die Tests fahren die echte Logik gegen
+nachgebaute Obsidian-Objekte (`tests/obsidian.js`) und einen Vault im Speicher.
+In den Stub gehört ausschließlich, was die echte API auch hat — ein zu
+freundlicher Stub bestätigt die eigenen Annahmen, statt sie zu prüfen. Dass
+`Modal` kein `register()` kennt und `Modal.doc` ein Nur-Lese-Getter ist, hat
+genau deshalb erst im laufenden Obsidian weh getan; beides ist jetzt
+nachgebildet.
+
 ### Entwickeln
 
 Am schnellsten geht es mit einem Symlink in einen Test-Vault:
@@ -234,6 +286,8 @@ Mobile Ansicht auf dem Desktop prüfen: Developer Console öffnen und
 
 ## Einstellungen
 
+- **Embeddings verwenden** samt Anbieter, Adresse, Modell, Schlüssel,
+  Dimensionen und Gewicht
 - **Beim Start öffnen** — Obsidian stellt eigene Ansichten beim Neustart nicht
   zuverlässig wieder her; auf dem Telefon landet man sonst in der zuletzt
   geöffneten Notiz. Standardmäßig an.
@@ -248,5 +302,4 @@ Mobile Ansicht auf dem Desktop prüfen: Developer Console öffnen und
 ## Nächste Schritte
 
 - Cluster-Ansicht: Themen-Regale statt Chronologie auf der Startseite
-- Optionale Embeddings über eine API, mit LSA als Rückfallebene
 - Verwandte Notizen beim Schreiben schon während des Tippens vorschlagen

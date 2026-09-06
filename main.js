@@ -17,10 +17,10 @@
  */
 
 const obsidian = require('obsidian');
-const { Plugin, ItemView, Modal, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon } = obsidian;
+const { Plugin, ItemView, Modal, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon, requestUrl } = obsidian;
 
 const VIEW_TYPE_TOSS = 'toss-view';
-const INDEX_VERSION = 6;
+const INDEX_VERSION = 7;
 
 /* Ab wann sich eine Dimensionsreduktion ueberhaupt lohnt. */
 const LSA_MIN_NOTES = 25;
@@ -48,6 +48,26 @@ const DEFAULT_SETTINGS = {
   layout: 'list',
   zoom: 100,
   openOnStart: true,
+
+  /* Echte Semantik ueber Embeddings - standardmaessig aus, weil dabei
+     Notiztext an einen Dienst geht. */
+  semanticEnabled: false,
+  semanticProvider: 'openai',
+  semanticBaseUrl: 'https://api.openai.com/v1',
+  semanticModel: 'text-embedding-3-small',
+  semanticKey: '',
+  semanticDims: 512,
+  semanticChars: 2000,
+  weightSemantic: 1.2,
+};
+
+/* Anbieter, die die OpenAI-Embeddings-Schnittstelle sprechen. */
+const PROVIDERS = {
+  openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small', dims: 512, needsKey: true },
+  mistral: { label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', model: 'mistral-embed', dims: 0, needsKey: true },
+  lmstudio: { label: 'LM Studio (lokal)', baseUrl: 'http://localhost:1234/v1', model: 'text-embedding-nomic-embed-text-v1.5', dims: 0, needsKey: false },
+  ollama: { label: 'Ollama (lokal)', baseUrl: 'http://localhost:11434/v1', model: 'nomic-embed-text', dims: 0, needsKey: false },
+  custom: { label: 'Eigener Endpunkt', baseUrl: '', model: '', dims: 0, needsKey: false },
 };
 
 /* ------------------------------------------------------------------ *
@@ -408,6 +428,18 @@ function computeLsa(rows, termCount, dims, iterations) {
   return { k, docVectors: Y, termVectors: Z };
 }
 
+/*
+ * Rauschboden fuer Embeddings. Zwei beliebige deutsche Saetze liegen bei
+ * gaengigen Modellen schon bei 0.1-0.25 - ohne Abzug bekaeme jede Notiz einen
+ * Grundscore und die Liste waere nie leer.
+ */
+const SEMANTIC_NOISE = 0.22;
+
+function semanticFloor(cos) {
+  if (cos <= SEMANTIC_NOISE) return 0;
+  return (cos - SEMANTIC_NOISE) / (1 - SEMANTIC_NOISE);
+}
+
 function lsaFloor(cos) {
   if (cos <= LSA_NOISE) return 0;
   return (cos - LSA_NOISE) / (1 - LSA_NOISE);
@@ -420,6 +452,118 @@ function normalizeRows(M, n, k) {
     norm = Math.sqrt(norm);
     if (norm < 1e-9) continue;
     for (let j = 0; j < k; j++) M[i * k + j] /= norm;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 4b. Embeddings - die eigentliche Semantik
+ *
+ * LSA kann nur Woerter verbinden, die im eigenen Vault gemeinsam vorkommen.
+ * "Muede Beine" und "Regeneration" bleiben dort fremd, solange sie nie in
+ * derselben Notiz stehen. Ein Embedding-Modell bringt Weltwissen mit und
+ * schliesst genau diese Luecke.
+ *
+ * Bewusst ueber die OpenAI-Schnittstelle: die sprechen auch Mistral, LM Studio
+ * und Ollama, damit bleibt die Wahl offen - inklusive rein lokaler Modelle auf
+ * dem Desktop.
+ * ------------------------------------------------------------------ */
+
+/* FNV-1a, reicht um zu erkennen, ob eine Notiz neu eingebettet werden muss. */
+function hashText(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
+/* Float32Array <-> base64. Als JSON-Zahlenliste waere der Index um ein
+   Vielfaches groesser. */
+function encodeVec(vec) {
+  const bytes = new Uint8Array(vec.buffer, vec.byteOffset, vec.byteLength);
+  let out = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    out += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(out);
+}
+
+function decodeVec(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Float32Array(bytes.buffer);
+}
+
+function normalizeVec(vec) {
+  let norm = 0;
+  for (let i = 0; i < vec.length; i++) norm += vec[i] * vec[i];
+  norm = Math.sqrt(norm);
+  if (norm > 1e-9) for (let i = 0; i < vec.length; i++) vec[i] /= norm;
+  return vec;
+}
+
+function dot(a, b) {
+  const n = Math.min(a.length, b.length);
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += a[i] * b[i];
+  return sum;
+}
+
+class Embedder {
+  constructor(plugin) { this.plugin = plugin; }
+
+  get settings() { return this.plugin.settings; }
+
+  available() {
+    const s = this.settings;
+    if (!s.semanticEnabled || !s.semanticBaseUrl || !s.semanticModel) return false;
+    const preset = PROVIDERS[s.semanticProvider];
+    if (preset && preset.needsKey && !s.semanticKey) return false;
+    return true;
+  }
+
+  /* Kennung des Modells: aendert sie sich, muss alles neu eingebettet werden. */
+  get key() {
+    const s = this.settings;
+    return `${s.semanticModel}@${s.semanticDims || 0}`;
+  }
+
+  /* texts -> Array normierter Float32Array, in derselben Reihenfolge. */
+  async embed(texts) {
+    const s = this.settings;
+    const body = { model: s.semanticModel, input: texts };
+    if (s.semanticDims > 0) body.dimensions = s.semanticDims;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (s.semanticKey) headers.Authorization = 'Bearer ' + s.semanticKey;
+
+    // requestUrl statt fetch: geht an CORS vorbei und funktioniert auf Mobile.
+    const res = await requestUrl({
+      url: s.semanticBaseUrl.replace(/\/+$/, '') + '/embeddings',
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      throw: false,
+    });
+
+    if (res.status !== 200) {
+      const detail = (res.json && res.json.error && res.json.error.message) || res.text || '';
+      throw new Error(`HTTP ${res.status} ${String(detail).slice(0, 200)}`);
+    }
+    const data = res.json && res.json.data;
+    if (!Array.isArray(data) || data.length !== texts.length) {
+      throw new Error('Unerwartete Antwort des Dienstes');
+    }
+    // index mitliefern lassen, manche Dienste sortieren um
+    const out = new Array(texts.length);
+    data.forEach((row, i) => {
+      const at = typeof row.index === 'number' ? row.index : i;
+      out[at] = normalizeVec(Float32Array.from(row.embedding));
+    });
+    return out;
   }
 }
 
@@ -445,8 +589,14 @@ class TossIndex {
     this.status = 'lade …';
     this.building = true;
     this.listeners = new Set();
+    this.embedder = new Embedder(plugin);
+    this.embedding = false;
+    this.embedDone = 0;
+    this.embedTotal = 0;
+    this.embedError = null;
     this.saveSoon = debounce(() => this.saveCache(), 4000);
     this.lsaSoon = debounce(() => this.buildLsa(), 2500);
+    this.embedSoon = debounce(() => this.embedMissing(), 1500);
   }
 
   onChange(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
@@ -482,6 +632,7 @@ class TossIndex {
     this.notify();
     this.saveSoon();
     if (this.settings.useLsa) this.lsaSoon();
+    if (this.embedder.available()) this.embedSoon();
   }
 
   async loadCache() {
@@ -502,6 +653,7 @@ class TossIndex {
       const docs = this.list.map((d) => ({
         path: d.path, mtime: d.mtime, created: d.created, title: d.title,
         derived: d.derived, own: d.own, tags: d.tags, text: d.text, norm: d.norm, tf: d.tf, gf: d.gf,
+        embHash: d.embHash, emb: d.emb, embModel: d.embModel,
       }));
       await this.app.vault.adapter.write(this.cachePath, JSON.stringify({ version: INDEX_VERSION, docs }));
     } catch (e) {
@@ -541,6 +693,13 @@ class TossIndex {
     const searchable = [title, tags.join(' '), body].join('\n');
     const { tf, gf } = featurize(searchable);
 
+    // Ein vorhandenes Embedding uebernehmen, solange sich Inhalt und Modell
+    // nicht geaendert haben - sonst wuerde jede Tippkorrektur neu abrechnen.
+    const embText = searchable.slice(0, this.settings.semanticChars);
+    const embHash = hashText(embText);
+    const before = this.docs.get(file.path);
+    const keep = before && before.embHash === embHash && before.emb;
+
     this.docs.set(file.path, {
       path: file.path,
       mtime: file.stat.mtime,
@@ -558,7 +717,16 @@ class TossIndex {
       text: body.replace(/\s+/g, ' ').trim().slice(0, 4000),
       norm: fold(searchable).replace(/\s+/g, ' '),
       tf, gf,
+      embHash,
+      emb: keep ? before.emb : null,
+      embModel: keep ? before.embModel : null,
+      vec: keep ? before.vec : null,
     });
+  }
+
+  /* Text, der eingebettet wird. */
+  embedTextOf(doc) {
+    return [doc.title, doc.tags.join(' '), doc.text].join('\n').slice(0, this.settings.semanticChars);
   }
 
   /* IDF, gewichtete Vektoren und invertierte Indizes neu berechnen. */
@@ -708,9 +876,65 @@ class TossIndex {
     return out;
   }
 
+  /* --- Embeddings -------------------------------------------------- */
+
+  embedStale() {
+    if (!this.embedder.available()) return [];
+    const key = this.embedder.key;
+    return this.list.filter((d) => !d.emb || d.embModel !== key);
+  }
+
+  async embedMissing() {
+    if (this.embedding || !this.embedder.available()) return;
+    const todo = this.embedStale();
+    if (!todo.length) { this.embedTotal = 0; this.notify(); return; }
+
+    this.embedding = true;
+    this.embedError = null;
+    this.embedDone = 0;
+    this.embedTotal = todo.length;
+    this.notify();
+
+    const key = this.embedder.key;
+    const batch = 32;
+    try {
+      for (let i = 0; i < todo.length; i += batch) {
+        const slice = todo.slice(i, i + batch);
+        const vecs = await this.embedder.embed(slice.map((d) => this.embedTextOf(d)));
+        slice.forEach((doc, j) => {
+          // Die Notiz kann sich waehrenddessen geaendert haben.
+          const current = this.docs.get(doc.path);
+          if (!current || current.embHash !== doc.embHash) return;
+          current.vec = vecs[j];
+          current.emb = encodeVec(vecs[j]);
+          current.embModel = key;
+        });
+        this.embedDone = Math.min(todo.length, i + slice.length);
+        this.notify();
+        await new Promise((r) => setTimeout(r, 120));   // hoeflich bleiben
+      }
+      this.saveSoon();
+    } catch (e) {
+      console.error('[Toss] Embeddings', e);
+      this.embedError = e.message;
+      new Notice('Toss: Embeddings fehlgeschlagen — ' + e.message);
+    } finally {
+      this.embedding = false;
+      this.embedTotal = 0;
+      this.notify();
+    }
+  }
+
+  vecOf(doc) {
+    if (doc.vec) return doc.vec;
+    if (!doc.emb || doc.embModel !== this.embedder.key) return null;
+    try { doc.vec = decodeVec(doc.emb); } catch (e) { doc.vec = null; }
+    return doc.vec;
+  }
+
   /* --- Suche ------------------------------------------------------ */
 
-  search(query) {
+  search(query, semVec) {
     const n = this.list.length;
     if (!n) return { hits: [], similar: [] };
     const s = this.settings;
@@ -744,22 +968,32 @@ class TossIndex {
         if (exact === 1 && rawWords.length > 1 && doc.norm.includes(raw)) exact = 1.25;
       }
 
+      /*
+       * Echte Semantik schlaegt LSA - aber nur fuer Notizen, die schon
+       * eingebettet sind. Waehrend ein Vault durchlaeuft, benutzt jede Notiz
+       * das Beste, was fuer sie vorliegt; doppelt gezaehlt wird nichts.
+       */
+      let semantic = 0;
       let lsa = 0;
-      if (qLsa && doc.lsaRow !== undefined) {
+      const vec = semVec ? this.vecOf(doc) : null;
+      if (vec) {
+        semantic = semanticFloor(dot(semVec, vec));
+      } else if (qLsa && doc.lsaRow !== undefined) {
         const { k, docVectors } = this.lsa;
         const off = doc.lsaRow * k;
         for (let j = 0; j < k; j++) lsa += qLsa[j] * docVectors[off + j];
         lsa = lsaFloor(lsa);
       }
 
-      let score = s.weightExact * exact + s.weightWord * word[i] + s.weightGram * gram[i] + s.weightLsa * lsa;
+      let score = s.weightExact * exact + s.weightWord * word[i] + s.weightGram * gram[i]
+        + s.weightLsa * lsa + s.weightSemantic * semantic;
       if (!(score > 0)) continue;   // fasst auch NaN, statt es stumm zu schlucken
 
       for (const tag of doc.tags) if (rawWords.includes(fold(tag))) score += 0.25;
       const ageDays = (now - doc.created) / 86400000;
       score += 0.04 / (1 + ageDays / 30); // frische Notizen leicht bevorzugen
 
-      results.push({ doc, score, exact, word: word[i], gram: gram[i], lsa });
+      results.push({ doc, score, exact, word: word[i], gram: gram[i], lsa, semantic });
     }
 
     results.sort((a, b) => b.score - a.score);
@@ -789,15 +1023,22 @@ class TossIndex {
     for (let i = 0; i < n; i++) {
       if (i === doc.index) continue;
       let lsa = 0;
+      let semantic = 0;
       const other = this.list[i];
-      if (this.lsa && doc.lsaRow !== undefined && other.lsaRow !== undefined) {
+      // Zwei fertige Vektoren zu vergleichen kostet nichts - "Aehnlich" ist
+      // damit auch ohne Netz echt semantisch.
+      const va = this.vecOf(doc);
+      const vb = this.vecOf(other);
+      if (va && vb) {
+        semantic = semanticFloor(dot(va, vb));
+      } else if (this.lsa && doc.lsaRow !== undefined && other.lsaRow !== undefined) {
         const { k, docVectors } = this.lsa;
         const a = doc.lsaRow * k;
         const b = other.lsaRow * k;
         for (let j = 0; j < k; j++) lsa += docVectors[a + j] * docVectors[b + j];
         lsa = lsaFloor(lsa);
       }
-      let score = 0.6 * word[i] + 0.2 * gram[i] + 0.6 * lsa;
+      let score = 0.6 * word[i] + 0.2 * gram[i] + 0.6 * lsa + 1.1 * semantic;
       const shared = other.tags.filter((t) => doc.tags.includes(t)).length;
       score += shared * 0.15;
       if (!(score >= 0.05)) continue;
@@ -824,6 +1065,7 @@ class TossIndex {
     this.notify();
     this.saveSoon();
     if (this.settings.useLsa) this.lsaSoon();
+    if (this.embedder.available()) this.embedSoon();
   }
 
   async rebuild() {
@@ -1123,6 +1365,10 @@ class TossView extends ItemView {
     this.lastOpenedPath = null;
     this.feedLimit = 40;
     this.searchSoon = debounce(() => this.render(), 130);
+    /* Anfrage-Vektoren: gecacht, damit Tippen nicht bei jedem Zeichen abrechnet. */
+    this.semCache = new Map();
+    this.semBusy = false;
+    this.embedQuerySoon = debounce((q) => this.embedQuery(q), 350);
   }
 
   getViewType() { return VIEW_TYPE_TOSS; }
@@ -1303,14 +1549,31 @@ class TossView extends ItemView {
 
   /* --- Darstellung ------------------------------------------------ */
 
+  /* Was die Suche gerade kann - und woran sie noch arbeitet. */
+  statusText() {
+    const idx = this.index;
+    let text = idx.status;
+    if (idx.embedding) {
+      text += ` · bettet ein ${idx.embedDone}/${idx.embedTotal}`;
+    } else if (idx.embedder.available()) {
+      const stale = idx.embedStale().length;
+      text += stale ? ` · ${stale} noch nicht eingebettet` : ' · semantisch';
+    } else if (idx.lsa) {
+      text += ` · LSA ${idx.lsa.k}D`;
+    }
+    if (idx.embedError) text += ' · Fehler';
+    if (this.semBusy) text += ' …';
+    return text;
+  }
+
   onIndexChanged() {
-    this.statusEl.setText(this.index.status + (this.index.lsa ? ` · LSA ${this.index.lsa.k}D` : ''));
+    this.statusEl.setText(this.statusText());
     this.render();   // das Overlay haengt nicht an der Liste, darf also neu bauen
   }
 
   render() {
     if (!this.listEl) return;
-    this.statusEl.setText(this.index.status + (this.index.lsa ? ` · LSA ${this.index.lsa.k}D` : ''));
+    this.statusEl.setText(this.statusText());
     const query = this.inputEl.value.trim();
     this.listEl.empty();
     this.groupEl = null;
@@ -1345,8 +1608,41 @@ class TossView extends ItemView {
     }
   }
 
+  /*
+   * Der Anfrage-Vektor kommt aus dem Netz und damit spaeter als die Liste.
+   * Deshalb: sofort lexikalisch anzeigen, und sobald der Vektor da ist, noch
+   * einmal rendern. Das fuehlt sich schneller an als auf beides zu warten.
+   */
+  semanticVectorFor(query) {
+    if (!this.index.embedder.available()) return null;
+    const hit = this.semCache.get(query);
+    if (hit) return hit;
+    if (query.length >= 3) this.embedQuerySoon(query);
+    return null;
+  }
+
+  async embedQuery(query) {
+    if (this.semBusy || this.semCache.has(query)) return;
+    if (!this.index.embedder.available()) return;
+    if (this.inputEl.value.trim() !== query) return;   // schon weitergetippt
+    this.semBusy = true;
+    this.statusEl.setText(this.statusText());
+    try {
+      const [vec] = await this.index.embedder.embed([query]);
+      if (this.semCache.size > 60) this.semCache.clear();
+      this.semCache.set(query, vec);
+      if (this.inputEl.value.trim() === query) this.render();
+    } catch (e) {
+      console.warn('[Toss] Anfrage konnte nicht eingebettet werden', e);
+      this.index.embedError = e.message;
+    } finally {
+      this.semBusy = false;
+      this.statusEl.setText(this.statusText());
+    }
+  }
+
   renderSearch(query) {
-    const { hits, similar } = this.index.search(query);
+    const { hits, similar } = this.index.search(query, this.semanticVectorFor(query));
     const words = fold(query).split(/\s+/).filter((w) => w.length >= 2);
     const re = queryRegex(words);
 
@@ -1703,11 +1999,101 @@ class TossSettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         }));
 
+    containerEl.createEl('h3', { text: 'Semantische Suche' });
+
+    const info = containerEl.createDiv({ cls: 'setting-item-description' });
+    info.createSpan({ text: 'Ohne Embeddings vergleicht Toss nur Wörter und deren gemeinsames Auftreten — „müde Beine“ findet die Notiz über Regeneration dann nicht. Ein Embedding-Modell bringt Weltwissen mit und schließt diese Lücke.' });
+    info.createEl('br');
+    info.createEl('strong', { text: 'Dabei geht Notiztext an den eingestellten Dienst. ' });
+    info.createSpan({ text: 'Bei LM Studio oder Ollama bleibt alles auf dem eigenen Rechner — dafür ist auf dem Telefon nichts erreichbar. Der Schlüssel steht im Klartext in der data.json des Plugins.' });
+
+    new Setting(containerEl)
+      .setName('Embeddings verwenden')
+      .setDesc('Aus: rein lokale Suche (Wörter, Zeichen-Trigramme, LSA).')
+      .addToggle((t) => t.setValue(this.plugin.settings.semanticEnabled).onChange(async (v) => {
+        this.plugin.settings.semanticEnabled = v;
+        await this.plugin.saveSettings();
+        if (v) this.plugin.index.embedMissing();
+        this.display();
+      }));
+
+    if (this.plugin.settings.semanticEnabled) {
+      new Setting(containerEl)
+        .setName('Anbieter')
+        .setDesc('Alle sprechen dieselbe Schnittstelle. Die Auswahl setzt Adresse, Modell und Dimensionen passend vor.')
+        .addDropdown((d) => {
+          for (const [key, p] of Object.entries(PROVIDERS)) d.addOption(key, p.label);
+          d.setValue(this.plugin.settings.semanticProvider).onChange(async (v) => {
+            const preset = PROVIDERS[v];
+            this.plugin.settings.semanticProvider = v;
+            if (preset && v !== 'custom') {
+              this.plugin.settings.semanticBaseUrl = preset.baseUrl;
+              this.plugin.settings.semanticModel = preset.model;
+              this.plugin.settings.semanticDims = preset.dims;
+            }
+            await this.plugin.saveSettings();
+            this.display();
+          });
+        });
+
+      new Setting(containerEl).setName('Adresse').setDesc('Basis-URL, ohne /embeddings.')
+        .addText((t) => t.setValue(this.plugin.settings.semanticBaseUrl).onChange(async (v) => {
+          this.plugin.settings.semanticBaseUrl = v.trim();
+          await this.plugin.saveSettings();
+        }));
+
+      new Setting(containerEl).setName('Modell')
+        .addText((t) => t.setValue(this.plugin.settings.semanticModel).onChange(async (v) => {
+          this.plugin.settings.semanticModel = v.trim();
+          await this.plugin.saveSettings();
+        }));
+
+      new Setting(containerEl).setName('API-Schlüssel').setDesc('Bei lokalen Diensten leer lassen.')
+        .addText((t) => {
+          t.inputEl.type = 'password';
+          t.setValue(this.plugin.settings.semanticKey).onChange(async (v) => {
+            this.plugin.settings.semanticKey = v.trim();
+            await this.plugin.saveSettings();
+          });
+        });
+
+      new Setting(containerEl)
+        .setName('Dimensionen')
+        .setDesc('0 = so, wie das Modell liefert. Kleinere Werte machen den Index kleiner; das können nicht alle Dienste.')
+        .addText((t) => t.setValue(String(this.plugin.settings.semanticDims)).onChange(async (v) => {
+          this.plugin.settings.semanticDims = Math.max(0, parseInt(v, 10) || 0);
+          await this.plugin.saveSettings();
+        }));
+
+      new Setting(containerEl)
+        .setName('Gewicht der Semantik')
+        .setDesc('Wie stark echte Bedeutungsnähe gegenüber Wortübereinstimmung zählt.')
+        .addSlider((s) => s.setLimits(0, 3, 0.1).setValue(this.plugin.settings.weightSemantic).setDynamicTooltip()
+          .onChange(async (v) => { this.plugin.settings.weightSemantic = v; await this.plugin.saveSettings(); }));
+
+      const idx = this.plugin.index;
+      const stale = idx.embedder.available() ? idx.embedStale().length : 0;
+      const state = idx.embedding
+        ? `läuft: ${idx.embedDone}/${idx.embedTotal}`
+        : idx.embedError ? 'zuletzt fehlgeschlagen: ' + idx.embedError
+        : stale ? `${stale} von ${idx.list.length} Notizen fehlen noch`
+        : `${idx.list.length} Notizen eingebettet`;
+
+      new Setting(containerEl)
+        .setName('Notizen einbetten')
+        .setDesc(state + '. Läuft sonst von selbst im Hintergrund, wenn sich etwas ändert.')
+        .addButton((b) => b.setButtonText('Jetzt einbetten').onClick(async () => {
+          await idx.embedMissing();
+          this.display();
+        }))
+        .addButton((b) => b.setButtonText('Status aktualisieren').onClick(() => this.display()));
+    }
+
     containerEl.createEl('h3', { text: 'Ähnlichkeit' });
 
     new Setting(containerEl)
       .setName('Semantische Suche (LSA)')
-      .setDesc('Findet zusätzlich Notizen ohne gemeinsame Wörter — über Begriffe, die in denselben Notizen vorkommen. Rein lokal, ab ca. 12 Notizen.')
+      .setDesc('Rückfallebene, wenn keine Embeddings vorliegen: verbindet Begriffe, die in denselben Notizen vorkommen. Rein lokal, ab 25 Notizen.')
       .addToggle((t) => t.setValue(this.plugin.settings.useLsa).onChange(async (v) => {
         this.plugin.settings.useLsa = v;
         await this.plugin.saveSettings();
