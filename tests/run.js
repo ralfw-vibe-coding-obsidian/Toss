@@ -292,7 +292,10 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
     await index.embedder.embed(['test']);
     check('Mit Dimensionsangabe, wenn gesetzt', JSON.parse(ob.__state.requests[0].body).dimensions === 512);
 
+    // Anbieter wechseln heisst in der Oberflaeche auch Adresse und Modell setzen.
     plugin.settings.semanticProvider = 'openai';
+    plugin.settings.semanticBaseUrl = 'https://api.openai.com/v1';
+    plugin.settings.semanticModel = 'text-embedding-3-small';
     ob.__state.requests.length = 0;
     await index.embedder.embed(['test']);
     check('Fremde Kennung nur bei OpenRouter', !ob.__state.requests[0].headers['X-Title']);
