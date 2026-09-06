@@ -476,3 +476,17 @@
 .is-mobile .toss-tagedit-box { min-height: 40px; }
 .is-mobile .toss-send { height: 44px; }
 .is-mobile .toss-input-clear { width: 28px; height: 28px; }
+
+/* Warnhinweis in den Einstellungen. */
+.toss-setting-warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--background-modifier-error);
+  color: var(--text-normal);
+  font-size: 0.85em;
+}
+.toss-setting-warn .svg-icon { width: 15px; height: 15px; }

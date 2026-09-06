@@ -301,6 +301,32 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
     let msg = '';
     try { await index.embedder.embed(['test']); } catch (e) { msg = e.message; }
     check('Fehler des Dienstes werden weitergereicht: ' + msg, msg.includes('500'));
+    check('… und nennen Ziel und Modell', msg.includes('openai.com') && msg.includes('text-embedding-3-small'));
+  }
+
+  /* ---------------------------------------------------------------- */
+  group('Schlüssel und Adresse passen zusammen');
+  {
+    const { index, plugin } = await makeEnv({ settings: { semanticEnabled: true } });
+    const e = index.embedder;
+
+    plugin.settings.semanticBaseUrl = 'https://api.openai.com/v1';
+    plugin.settings.semanticKey = 'sk-or-v1-abc';
+    check('OpenRouter-Schlüssel an OpenAI wird erkannt: ' + (e.mismatch() || '').slice(0, 60),
+      !!e.mismatch() && e.mismatch().includes('OpenRouter-Schlüssel'));
+
+    plugin.settings.semanticBaseUrl = 'https://openrouter.ai/api/v1';
+    check('… und bei passender Adresse nicht mehr', e.mismatch() === null);
+
+    plugin.settings.semanticKey = 'sk-proj-abc';
+    check('OpenAI-Schlüssel an OpenRouter wird erkannt', !!e.mismatch());
+
+    plugin.settings.semanticKey = '';
+    check('Ohne Schlüssel keine Warnung', e.mismatch() === null);
+
+    plugin.settings.semanticBaseUrl = 'https://openrouter.ai/api/v1/';
+    check('Endpunkt haengt /embeddings sauber an: ' + e.endpoint(),
+      e.endpoint() === 'https://openrouter.ai/api/v1/embeddings');
   }
 
   console.log('\n' + (failed ? failed + ' FEHLER' : 'alle Checks grün'));

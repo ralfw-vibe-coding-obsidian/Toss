@@ -535,6 +535,30 @@ class Embedder {
     return true;
   }
 
+  endpoint() {
+    return String(this.settings.semanticBaseUrl || '').replace(/\/+$/, '') + '/embeddings';
+  }
+
+  /*
+   * Haeufigster Stolperstein: Schluessel des einen Dienstes, Adresse des
+   * anderen. Der Dienst antwortet dann mit "falscher Schluessel", und man sucht
+   * am falschen Ende.
+   */
+  mismatch() {
+    const url = String(this.settings.semanticBaseUrl || '');
+    const key = String(this.settings.semanticKey || '');
+    if (!key) return null;
+    const atOpenRouter = url.includes('openrouter.ai');
+    const looksOpenRouter = key.startsWith('sk-or-');
+    if (atOpenRouter && !looksOpenRouter) {
+      return 'Die Adresse zeigt auf OpenRouter, der Schlüssel sieht nicht danach aus (dort beginnen sie mit „sk-or-“).';
+    }
+    if (!atOpenRouter && looksOpenRouter) {
+      return `Das ist ein OpenRouter-Schlüssel, die Anfrage geht aber an ${url || '(keine Adresse)'}. Anbieter auf OpenRouter stellen.`;
+    }
+    return null;
+  }
+
   /* Kennung des Modells: aendert sie sich, muss alles neu eingebettet werden. */
   get key() {
     const s = this.settings;
@@ -552,9 +576,10 @@ class Embedder {
     const preset = PROVIDERS[s.semanticProvider];
     if (preset && preset.headers) Object.assign(headers, preset.headers);
 
+    const url = this.endpoint();
     // requestUrl statt fetch: geht an CORS vorbei und funktioniert auf Mobile.
     const res = await requestUrl({
-      url: s.semanticBaseUrl.replace(/\/+$/, '') + '/embeddings',
+      url,
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -563,7 +588,8 @@ class Embedder {
 
     if (res.status !== 200) {
       const detail = (res.json && res.json.error && res.json.error.message) || res.text || '';
-      throw new Error(`HTTP ${res.status} ${String(detail).slice(0, 200)}`);
+      // Ziel mit in die Meldung: sonst raetselt man, welcher Dienst abgelehnt hat.
+      throw new Error(`HTTP ${res.status} bei ${url} (${s.semanticModel}) — ${String(detail).slice(0, 200)}`);
     }
     const data = res.json && res.json.data;
     if (!Array.isArray(data) || data.length !== texts.length) {
@@ -2095,15 +2121,24 @@ class TossSettingTab extends PluginSettingTab {
         : stale ? `${stale} von ${idx.list.length} Notizen fehlen noch`
         : `${idx.list.length} Notizen eingebettet`;
 
+      const embedder = this.plugin.index.embedder;
+      const mismatch = embedder.mismatch();
+      if (mismatch) {
+        const warn = containerEl.createDiv({ cls: 'toss-setting-warn' });
+        setIconSafe(warn.createSpan({ cls: 'toss-source-icon' }), 'alert-triangle', '!');
+        warn.createSpan({ text: mismatch });
+      }
+
       const testRow = new Setting(containerEl)
         .setName('Verbindung testen')
-        .setDesc('Bettet einen kurzen Satz ein und meldet, was zurückkommt.');
+        .setDesc('Fragt ' + embedder.endpoint() + ' mit Modell ' + (this.plugin.settings.semanticModel || '(keins)') + '.');
       testRow.addButton((b) => b.setButtonText('Testen').onClick(async () => {
         testRow.setDesc('Frage läuft …');
         try {
           const started = Date.now();
           const [vec] = await this.plugin.index.embedder.embed(['Ein kurzer Satz zum Testen.']);
           testRow.setDesc(`Antwort in ${Date.now() - started} ms, ${vec.length} Dimensionen — passt.`);
+          new Notice('Toss: Verbindung steht.');
         } catch (e) {
           testRow.setDesc('Fehlgeschlagen: ' + e.message);
         }
