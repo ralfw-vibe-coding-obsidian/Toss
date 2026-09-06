@@ -115,12 +115,23 @@ Regeneration, obwohl sie kein Wort mit der Anfrage teilt.
 Toss spricht die **OpenAI-Embeddings-Schnittstelle**; damit stehen mehrere Wege
 offen:
 
-| Anbieter | Adresse | Modell |
-|---|---|---|
-| OpenAI | `https://api.openai.com/v1` | `text-embedding-3-small` |
-| Mistral | `https://api.mistral.ai/v1` | `mistral-embed` |
-| LM Studio (lokal) | `http://localhost:1234/v1` | z.B. `nomic-embed-text` |
-| Ollama (lokal) | `http://localhost:11434/v1` | `nomic-embed-text` |
+| Anbieter | Adresse | Modell | Preis je Mio. Token |
+|---|---|---|---|
+| **OpenRouter** | `https://openrouter.ai/api/v1` | `baai/bge-m3` | 0,01 $ |
+| OpenAI | `https://api.openai.com/v1` | `text-embedding-3-small` | 0,02 $ |
+| Mistral | `https://api.mistral.ai/v1` | `mistral-embed` | 0,10 $ |
+| LM Studio (lokal) | `http://localhost:1234/v1` | z.B. `nomic-embed-text` | — |
+| Ollama (lokal) | `http://localhost:11434/v1` | `nomic-embed-text` | — |
+
+Über **OpenRouter** stehen die Modelle aller Anbieter unter einem Schlüssel. Für
+deutsche Notizen bewährt: `baai/bge-m3` (mehrsprachig, retrieval-optimiert) oder
+`intfloat/multilingual-e5-large`. Zum Ausprobieren ohne Kosten gibt es
+`nvidia/nemotron-3-embed-1b:free` und `liquid/lfm-2.5-embedding-350m:free`.
+
+Die Kosten sind in dieser Größenordnung vernachlässigbar: Eine Toss-Notiz ist
+grob 60 Token, tausend Notizen also etwa 60 000 — bei 0,01 $ je Million sind das
+**deutlich unter einem Cent** für den kompletten Vault. Suchanfragen sind noch
+kleiner und werden zusätzlich gecacht.
 
 **Dabei geht Notiztext an den eingestellten Dienst.** Bei LM Studio und Ollama
 bleibt alles auf dem eigenen Rechner — dafür ist auf dem Telefon nichts
@@ -287,7 +298,7 @@ Mobile Ansicht auf dem Desktop prüfen: Developer Console öffnen und
 ## Einstellungen
 
 - **Embeddings verwenden** samt Anbieter, Adresse, Modell, Schlüssel,
-  Dimensionen und Gewicht
+  Dimensionen und Gewicht — dazu ein Knopf, der die Verbindung testet
 - **Beim Start öffnen** — Obsidian stellt eigene Ansichten beim Neustart nicht
   zuverlässig wieder her; auf dem Telefon landet man sonst in der zuletzt
   geöffneten Notiz. Standardmäßig an.

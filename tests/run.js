@@ -269,6 +269,40 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
     check('LSA springt ein', !!index.lsa);
   }
 
+  /* ---------------------------------------------------------------- */
+  group('Anbieter-Voreinstellungen');
+  {
+    const { I, index, plugin, obsidian: ob } = await makeEnv({
+      settings: {
+        semanticEnabled: true, semanticProvider: 'openrouter',
+        semanticBaseUrl: 'https://openrouter.ai/api/v1', semanticModel: 'baai/bge-m3',
+        semanticKey: 'k', semanticDims: 0,
+      },
+    });
+    ob.__state.requests.length = 0;
+    await index.embedder.embed(['test']);
+    const req = ob.__state.requests[0];
+    check('Endpunkt richtig zusammengesetzt: ' + req.url, req.url === 'https://openrouter.ai/api/v1/embeddings');
+    check('Schluessel als Bearer', req.headers.Authorization === 'Bearer k');
+    check('OpenRouter-Kennung mitgeschickt', req.headers['X-Title'] === 'Obsidian Toss');
+    check('Ohne Dimensionsangabe, wenn 0', !('dimensions' in JSON.parse(req.body)));
+
+    plugin.settings.semanticDims = 512;
+    ob.__state.requests.length = 0;
+    await index.embedder.embed(['test']);
+    check('Mit Dimensionsangabe, wenn gesetzt', JSON.parse(ob.__state.requests[0].body).dimensions === 512);
+
+    plugin.settings.semanticProvider = 'openai';
+    ob.__state.requests.length = 0;
+    await index.embedder.embed(['test']);
+    check('Fremde Kennung nur bei OpenRouter', !ob.__state.requests[0].headers['X-Title']);
+
+    ob.__state.failNext = true;
+    let msg = '';
+    try { await index.embedder.embed(['test']); } catch (e) { msg = e.message; }
+    check('Fehler des Dienstes werden weitergereicht: ' + msg, msg.includes('500'));
+  }
+
   console.log('\n' + (failed ? failed + ' FEHLER' : 'alle Checks grün'));
   process.exit(failed ? 1 : 0);
 })().catch((e) => { console.error('\nABBRUCH in "' + section + '"\n', e); process.exit(1); });

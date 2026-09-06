@@ -63,6 +63,16 @@ const DEFAULT_SETTINGS = {
 
 /* Anbieter, die die OpenAI-Embeddings-Schnittstelle sprechen. */
 const PROVIDERS = {
+  openrouter: {
+    label: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'baai/bge-m3',
+    dims: 0,                       // die meisten Modelle dort koennen das nicht
+    needsKey: true,
+    // OpenRouter mag diese Kennung; fuer die anderen Dienste waere sie nur Ballast.
+    headers: { 'HTTP-Referer': 'https://github.com/ralfw-vibe-coding-obsidian/Toss', 'X-Title': 'Obsidian Toss' },
+    hint: 'Empfehlung: baai/bge-m3 (mehrsprachig, ~0,01 $ je Million Zeichenketten-Token). Weitere: intfloat/multilingual-e5-large, qwen/qwen3-embedding-8b, openai/text-embedding-3-small. Kostenlos zum Ausprobieren: nvidia/nemotron-3-embed-1b:free',
+  },
   openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small', dims: 512, needsKey: true },
   mistral: { label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', model: 'mistral-embed', dims: 0, needsKey: true },
   lmstudio: { label: 'LM Studio (lokal)', baseUrl: 'http://localhost:1234/v1', model: 'text-embedding-nomic-embed-text-v1.5', dims: 0, needsKey: false },
@@ -539,6 +549,8 @@ class Embedder {
 
     const headers = { 'Content-Type': 'application/json' };
     if (s.semanticKey) headers.Authorization = 'Bearer ' + s.semanticKey;
+    const preset = PROVIDERS[s.semanticProvider];
+    if (preset && preset.headers) Object.assign(headers, preset.headers);
 
     // requestUrl statt fetch: geht an CORS vorbei und funktioniert auf Mobile.
     const res = await requestUrl({
@@ -2042,13 +2054,17 @@ class TossSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+      const preset = PROVIDERS[this.plugin.settings.semanticProvider];
       new Setting(containerEl).setName('Modell')
+        .setDesc(preset && preset.hint ? preset.hint : 'Modellkennung des Dienstes.')
         .addText((t) => t.setValue(this.plugin.settings.semanticModel).onChange(async (v) => {
           this.plugin.settings.semanticModel = v.trim();
           await this.plugin.saveSettings();
         }));
 
-      new Setting(containerEl).setName('API-Schlüssel').setDesc('Bei lokalen Diensten leer lassen.')
+      new Setting(containerEl)
+        .setName('API-Schlüssel')
+        .setDesc('Bei lokalen Diensten leer lassen. Liegt im Klartext in der data.json des Plugins — die wandert mit, wenn der Vault synchronisiert wird.')
         .addText((t) => {
           t.inputEl.type = 'password';
           t.setValue(this.plugin.settings.semanticKey).onChange(async (v) => {
@@ -2078,6 +2094,20 @@ class TossSettingTab extends PluginSettingTab {
         : idx.embedError ? 'zuletzt fehlgeschlagen: ' + idx.embedError
         : stale ? `${stale} von ${idx.list.length} Notizen fehlen noch`
         : `${idx.list.length} Notizen eingebettet`;
+
+      const testRow = new Setting(containerEl)
+        .setName('Verbindung testen')
+        .setDesc('Bettet einen kurzen Satz ein und meldet, was zurückkommt.');
+      testRow.addButton((b) => b.setButtonText('Testen').onClick(async () => {
+        testRow.setDesc('Frage läuft …');
+        try {
+          const started = Date.now();
+          const [vec] = await this.plugin.index.embedder.embed(['Ein kurzer Satz zum Testen.']);
+          testRow.setDesc(`Antwort in ${Date.now() - started} ms, ${vec.length} Dimensionen — passt.`);
+        } catch (e) {
+          testRow.setDesc('Fehlgeschlagen: ' + e.message);
+        }
+      }));
 
       new Setting(containerEl)
         .setName('Notizen einbetten')
