@@ -256,9 +256,11 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
     const stand = obsidian.__state.requests.length;
     const file = plugin.app.vault.getAbstractFileByPath(index.list[0].path);
     await index.readFile(file);
-    check('Hash laeuft ueber genau den eingebetteten Text', (() => {
+    check('Hashes laufen ueber genau die eingebetteten Abschnitte', (() => {
       const doc = index.list[0];
-      return doc.embHash === I.hashText(index.embedTextOf(doc));
+      const chunks = index.embedChunksOf(doc);
+      return doc.embHashes.length === chunks.length
+        && doc.embHashes.every((h, i) => h === I.hashText(chunks[i]));
     })());
     check('Unveraenderte Notiz behaelt ihren Vektor', index.embedStale().length === 0
       && obsidian.__state.requests.length === stand);
@@ -351,7 +353,9 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
     const datei = JSON.parse(disk.get(pfad));
     check('Nach Inhalts-Hash und Modell abgelegt: ' + Object.keys(datei.vectors)[0],
       Object.keys(datei.vectors).every((k) => /^[0-9a-f]+\|fake@0$/.test(k)));
-    check('Ein Eintrag je Notiz', Object.keys(datei.vectors).length === first.index.list.length);
+    check('Ein Eintrag je Abschnitt',
+      Object.keys(datei.vectors).length
+        === first.index.list.reduce((n, d) => n + d.embHashes.length, 0));
 
     // Zweiter Start auf demselben Vault: nichts muss neu eingebettet werden.
     first.obsidian.__state.requests.length = 0;
@@ -360,7 +364,8 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
     check('… ohne eine einzige Anfrage', second.obsidian.__state.requests.length === 0);
     check('Und die Suche nutzt sie', (() => {
       const doc = second.index.list[0];
-      return second.index.vecOf(doc) instanceof Float32Array;
+      const vecs = second.index.vecsOf(doc);
+      return vecs.length === doc.embHashes.length && vecs[0] instanceof Float32Array;
     })());
 
     // Fremder Schreiber zwischendurch - sein Eintrag darf nicht verlorengehen.
@@ -406,6 +411,47 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
       marks.length > 0 && marks.every((m) => m.length > 1));
     check('Treffer trotz Satzzeichen gefunden',
       index.search('espresso.').hits.some((h) => h.doc.title.includes('Espresso')));
+  }
+
+  /* ---------------------------------------------------------------- */
+  group('Lange Notizen in Abschnitten');
+  {
+    const { I, index, plugin, obsidian: ob } = await makeEnv({
+      settings: {
+        semanticEnabled: true, semanticBaseUrl: 'http://test/v1',
+        semanticModel: 'fake', semanticKey: 'k', semanticDims: 0,
+        semanticChunk: 300, semanticMaxChunks: 6,
+      },
+    });
+
+    const kurz = I.embeddingChunks('Titel', ['a'], 'Kurzer Text.', 300, 6);
+    check('Kurze Notiz bleibt ein Abschnitt', kurz.length === 1);
+
+    const body = Array.from({ length: 200 }, (_, i) => 'Wort' + i).join(' ');
+    const lang = I.embeddingChunks('Tagebuch', [], body, 300, 6);
+    check('Lange Notiz wird zerlegt (' + lang.length + ' Abschnitte)', lang.length > 1);
+    check('Titel steht in jedem Abschnitt', lang.every((c) => c.startsWith('Tagebuch\n\n')));
+    check('Kein angeschnittenes Wort',
+      lang.every((c) => body.includes(c.replace('Tagebuch\n\n', ''))));
+    check('Obergrenze wird eingehalten',
+      I.embeddingChunks('x', [], 'abcdefghij '.repeat(2000), 300, 4).length === 4);
+
+    // Eine Notiz, deren relevante Stelle weit hinten steht.
+    const weitHinten = 'Toss/lang-gemischt.md';
+    await plugin.app.vault.create(weitHinten,
+      '---\ncreated: 2026-03-01T10:00:00.000Z\ntitle: "Gemischter Tag"\n---\n'
+      + 'Zuerst ganz andere Dinge. '.repeat(30) + 'Und ganz am Ende: Zwirbelholz.\n');
+    await index.readFile(plugin.app.vault.getAbstractFileByPath(weitHinten));
+    index.afterChange();
+    const doc = index.docs.get(weitHinten);
+    check('Mehrere Abschnitte fuer die gemischte Notiz (' + doc.embHashes.length + ')',
+      doc.embHashes.length > 1);
+
+    ob.__state.requests.length = 0;
+    await index.embedMissing();
+    check('Jeder Abschnitt bekommt einen Vektor',
+      index.vecsOf(doc).length === doc.embHashes.length);
+    check('Nichts bleibt offen', index.embedStale().length === 0);
   }
 
   console.log('\n' + (failed ? failed + ' FEHLER' : 'alle Checks grün'));

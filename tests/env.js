@@ -27,7 +27,7 @@ Module._load = function (req) {
 function loadPlugin() {
   const source = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
     + '\nmodule.exports.__i = { TossIndex, TossView, NoteModal, TagEditor, Embedder, DEFAULT_SETTINGS,'
-    + ' parseNote, buildNote, deriveTitle, featurize, fold, foldedWords, stem, snippet, queryRegex,'
+    + ' parseNote, buildNote, deriveTitle, featurize, fold, foldedWords, stem, snippet, queryRegex, embeddingChunks,'
     + ' encodeVec, decodeVec, normalizeVec, dot, hashText, LAYOUTS };\n';
   const file = path.join(__dirname, '.main.generated.js');
   fs.writeFileSync(file, source);

@@ -20,7 +20,7 @@ const obsidian = require('obsidian');
 const { Plugin, ItemView, Modal, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon, requestUrl } = obsidian;
 
 const VIEW_TYPE_TOSS = 'toss-view';
-const INDEX_VERSION = 8;
+const INDEX_VERSION = 9;
 
 /*
  * Vektoren liegen NICHT im Index-Cache, sondern in einer eigenen Datei im
@@ -70,6 +70,9 @@ const DEFAULT_SETTINGS = {
   semanticKey: '',
   semanticDims: 512,
   semanticChars: 2000,
+  /* Zeichen je Abschnitt und Obergrenze der Abschnitte einer Notiz. */
+  semanticChunk: 900,
+  semanticMaxChunks: 6,
   weightSemantic: 1.2,
 };
 
@@ -504,6 +507,37 @@ function embeddingText(title, tags, text, limit) {
   return [title, tags.join(' '), text].join('\n').slice(0, limit);
 }
 
+/*
+ * Eine Notiz in Abschnitte zerlegen, jeder mit Titel und Tags als Kopf.
+ *
+ * Ein einziger Vektor je Notiz ist bei mehreren Themen ein verwaschener
+ * Mittelwert - und alles hinter der Laengengrenze faellt ganz weg. Mit
+ * Abschnitten zaehlt die beste Stelle, nicht der Durchschnitt.
+ *
+ * Die Swift-Fassung der Desktop-App muss dieselben Grenzen finden, sonst
+ * laufen die Hashes auseinander und beide Programme betten doppelt ein.
+ * tools/crosscheck.sh dort prueft das.
+ */
+function embeddingChunks(title, tags, text, chunkSize, maxChunks) {
+  const head = [title, tags.join(' ')].join('\n');
+  if (!text) return [head];
+
+  const out = [];
+  let start = 0;
+  while (start < text.length && out.length < maxChunks) {
+    let end = Math.min(text.length, start + chunkSize);
+    if (end < text.length) {
+      // An der letzten Wortgrenze trennen, aber nicht vor der Haelfte.
+      const space = text.lastIndexOf(' ', end);
+      if (space > start + chunkSize / 2) end = space;
+    }
+    out.push(head + '\n' + text.slice(start, end).trim());
+    start = end;
+    while (text[start] === ' ') start++;
+  }
+  return out;
+}
+
 /* FNV-1a, reicht um zu erkennen, ob eine Notiz neu eingebettet werden muss. */
 function hashText(s) {
   let h = 0x811c9dc5;
@@ -771,7 +805,7 @@ class TossIndex {
       const docs = this.list.map((d) => ({
         path: d.path, mtime: d.mtime, created: d.created, title: d.title,
         derived: d.derived, own: d.own, tags: d.tags, text: d.text, norm: d.norm, tf: d.tf, gf: d.gf,
-        embHash: d.embHash,
+        embHashes: d.embHashes,
       }));
       await this.app.vault.adapter.write(this.cachePath, JSON.stringify({ version: INDEX_VERSION, docs }));
     } catch (e) {
@@ -816,7 +850,8 @@ class TossIndex {
     // App ihn berechnet hat. Gehasht wird genau das, was auch eingebettet wird,
     // damit eine andere App denselben Schluessel ausrechnen kann.
     const text = body.replace(/\s+/g, ' ').trim().slice(0, 4000);
-    const embHash = hashText(embeddingText(title, tags, text, this.settings.semanticChars));
+    const embHashes = embeddingChunks(title, tags, text,
+      this.settings.semanticChunk, this.settings.semanticMaxChunks).map(hashText);
 
     this.docs.set(file.path, {
       path: file.path,
@@ -835,13 +870,14 @@ class TossIndex {
       text,
       norm: fold(searchable).replace(/\s+/g, ' '),
       tf, gf,
-      embHash,
+      embHashes,
     });
   }
 
-  /* Text, der eingebettet wird - und ueber den der Hash laeuft. */
-  embedTextOf(doc) {
-    return embeddingText(doc.title, doc.tags, doc.text, this.settings.semanticChars);
+  /* Abschnitte, die eingebettet werden - und ueber die die Hashes laufen. */
+  embedChunksOf(doc) {
+    return embeddingChunks(doc.title, doc.tags, doc.text,
+      this.settings.semanticChunk, this.settings.semanticMaxChunks);
   }
 
   /* IDF, gewichtete Vektoren und invertierte Indizes neu berechnen. */
@@ -993,14 +1029,29 @@ class TossIndex {
 
   /* --- Embeddings -------------------------------------------------- */
 
+  /* Notizen, bei denen noch mindestens ein Abschnitt fehlt. */
   embedStale() {
     if (!this.embedder.available()) return [];
-    return this.list.filter((d) => !this.vectors.has(this.vectorKey(d.embHash)));
+    return this.list.filter((d) => d.embHashes.some((h) => !this.vectors.has(this.vectorKey(h))));
+  }
+
+  /* Jeder einzelne fehlende Abschnitt, als Paar aus Hash und Text. */
+  embedWork() {
+    const out = [];
+    for (const doc of this.list) {
+      const chunks = this.embedChunksOf(doc);
+      doc.embHashes.forEach((hash, i) => {
+        if (!this.vectors.has(this.vectorKey(hash)) && chunks[i] !== undefined) {
+          out.push({ hash, text: chunks[i] });
+        }
+      });
+    }
+    return out;
   }
 
   async embedMissing() {
     if (this.embedding || !this.embedder.available()) return;
-    const todo = this.embedStale();
+    const todo = this.embedWork();
     if (!todo.length) { this.embedTotal = 0; this.notify(); return; }
 
     this.embedding = true;
@@ -1014,12 +1065,12 @@ class TossIndex {
     try {
       for (let i = 0; i < todo.length; i += batch) {
         const slice = todo.slice(i, i + batch);
-        const vecs = await this.embedder.embed(slice.map((d) => this.embedTextOf(d)));
+        const vecs = await this.embedder.embed(slice.map((item) => item.text));
         const today = Math.floor(Date.now() / 86400000);
-        slice.forEach((doc, j) => {
+        slice.forEach((item, j) => {
           // Ueber den Inhalts-Hash abgelegt: aendert sich die Notiz
           // zwischendurch, ist der Eintrag einfach fuer den alten Stand gueltig.
-          this.vectors.set(doc.embHash + '|' + key, { v: encodeVec(vecs[j]), t: today, vec: vecs[j] });
+          this.vectors.set(item.hash + '|' + key, { v: encodeVec(vecs[j]), t: today, vec: vecs[j] });
         });
         this.embedDone = Math.min(todo.length, i + slice.length);
         this.notify();
@@ -1038,14 +1089,20 @@ class TossIndex {
     }
   }
 
-  vecOf(doc) {
-    const entry = this.vectors.get(this.vectorKey(doc.embHash));
-    if (!entry) return null;
-    if (!entry.vec) {
-      try { entry.vec = decodeVec(entry.v); } catch (e) { return null; }
+  /* Alle vorliegenden Abschnittsvektoren einer Notiz. */
+  vecsOf(doc) {
+    const out = [];
+    const today = Math.floor(Date.now() / 86400000);
+    for (const hash of doc.embHashes || []) {
+      const entry = this.vectors.get(this.vectorKey(hash));
+      if (!entry) continue;
+      if (!entry.vec) {
+        try { entry.vec = decodeVec(entry.v); } catch (e) { continue; }
+      }
+      entry.t = today;   // benutzt, also behalten
+      out.push(entry.vec);
     }
-    entry.t = Math.floor(Date.now() / 86400000);   // benutzt, also behalten
-    return entry.vec;
+    return out;
   }
 
   /* --- Suche ------------------------------------------------------ */
@@ -1094,9 +1151,12 @@ class TossIndex {
        */
       let semantic = 0;
       let lsa = 0;
-      const vec = semVec ? this.vecOf(doc) : null;
-      if (vec) {
-        semantic = semanticFloor(dot(semVec, vec));
+      const chunks = semVec ? this.vecsOf(doc) : [];
+      if (chunks.length) {
+        // Die beste Stelle zaehlt, nicht der Durchschnitt der ganzen Notiz.
+        let best = 0;
+        for (const vec of chunks) best = Math.max(best, dot(semVec, vec));
+        semantic = semanticFloor(best);
       } else if (qLsa && doc.lsaRow !== undefined) {
         const { k, docVectors } = this.lsa;
         const off = doc.lsaRow * k;
@@ -1146,10 +1206,13 @@ class TossIndex {
       const other = this.list[i];
       // Zwei fertige Vektoren zu vergleichen kostet nichts - "Aehnlich" ist
       // damit auch ohne Netz echt semantisch.
-      const va = this.vecOf(doc);
-      const vb = this.vecOf(other);
-      if (va && vb) {
-        semantic = semanticFloor(dot(va, vb));
+      const va = this.vecsOf(doc);
+      const vb = this.vecsOf(other);
+      if (va.length && vb.length) {
+        // Bester Abschnitt gegen besten Abschnitt.
+        let best = 0;
+        for (const a of va) for (const b of vb) best = Math.max(best, dot(a, b));
+        semantic = semanticFloor(best);
       } else if (this.lsa && doc.lsaRow !== undefined && other.lsaRow !== undefined) {
         const { k, docVectors } = this.lsa;
         const a = doc.lsaRow * k;

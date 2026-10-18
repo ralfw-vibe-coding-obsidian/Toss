@@ -168,7 +168,11 @@ zu kennen.
 }
 ```
 
-- **Schlüssel** ist der FNV-1a-Hash des eingebetteten Textes (Titel, Tags, Body,
+- **Eine Notiz wird in Abschnitte zerlegt** (je 900 Zeichen, höchstens 6), jeder
+  mit Titel und Tags als Kopf. Ein einziger Vektor je Notiz wäre bei mehreren
+  Themen ein verwaschener Mittelwert — und alles hinter der Längengrenze fiele
+  ganz weg. Gewertet wird die **beste Stelle**, nicht der Durchschnitt.
+- **Schlüssel** ist der FNV-1a-Hash des eingebetteten Abschnitts (Titel, Tags, Body,
   gekürzt) plus Modellkennung. Gleicher Schlüssel heißt gleicher Vektor —
   deshalb sind gleichzeitige Schreiber harmlos: ein verlorenes Update bedeutet
   einmal neu einbetten, nie falsche Daten.
