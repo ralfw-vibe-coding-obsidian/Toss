@@ -256,6 +256,10 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
     const stand = obsidian.__state.requests.length;
     const file = plugin.app.vault.getAbstractFileByPath(index.list[0].path);
     await index.readFile(file);
+    check('Hash laeuft ueber genau den eingebetteten Text', (() => {
+      const doc = index.list[0];
+      return doc.embHash === I.hashText(index.embedTextOf(doc));
+    })());
     check('Unveraenderte Notiz behaelt ihren Vektor', index.embedStale().length === 0
       && obsidian.__state.requests.length === stand);
   }

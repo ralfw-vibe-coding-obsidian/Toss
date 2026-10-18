@@ -490,6 +490,15 @@ function normalizeRows(M, n, k) {
  * dem Desktop.
  * ------------------------------------------------------------------ */
 
+/*
+ * Der Text, der eingebettet wird. Eine einzige Definition, weil der
+ * Inhalts-Hash daraufsetzt: eine zweite App muss denselben Schluessel
+ * ausrechnen koennen, ohne den Code zu kennen.
+ */
+function embeddingText(title, tags, text, limit) {
+  return [title, tags.join(' '), text].join('\n').slice(0, limit);
+}
+
 /* FNV-1a, reicht um zu erkennen, ob eine Notiz neu eingebettet werden muss. */
 function hashText(s) {
   let h = 0x811c9dc5;
@@ -799,8 +808,10 @@ class TossIndex {
 
     // Nur der Hash haengt an der Notiz; der Vektor steht im gemeinsamen
     // Speicher. Aendert sich der Inhalt nicht, bleibt er gueltig - egal welche
-    // App ihn berechnet hat.
-    const embHash = hashText(searchable.slice(0, this.settings.semanticChars));
+    // App ihn berechnet hat. Gehasht wird genau das, was auch eingebettet wird,
+    // damit eine andere App denselben Schluessel ausrechnen kann.
+    const text = body.replace(/\s+/g, ' ').trim().slice(0, 4000);
+    const embHash = hashText(embeddingText(title, tags, text, this.settings.semanticChars));
 
     this.docs.set(file.path, {
       path: file.path,
@@ -816,16 +827,16 @@ class TossIndex {
       tags,
       // Originaltext fuer die Anzeige (Fundstellen brauchen echte Positionen),
       // gefaltete Fassung fuer den Abgleich.
-      text: body.replace(/\s+/g, ' ').trim().slice(0, 4000),
+      text,
       norm: fold(searchable).replace(/\s+/g, ' '),
       tf, gf,
       embHash,
     });
   }
 
-  /* Text, der eingebettet wird. */
+  /* Text, der eingebettet wird - und ueber den der Hash laeuft. */
   embedTextOf(doc) {
-    return [doc.title, doc.tags.join(' '), doc.text].join('\n').slice(0, this.settings.semanticChars);
+    return embeddingText(doc.title, doc.tags, doc.text, this.settings.semanticChars);
   }
 
   /* IDF, gewichtete Vektoren und invertierte Indizes neu berechnen. */
