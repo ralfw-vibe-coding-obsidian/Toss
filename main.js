@@ -196,7 +196,12 @@ function normalizeTag(raw) {
  * vielleicht "für". Reihenfolge der Ersetzungen ist wichtig - siehe Kommentar.
  */
 function tolerantPattern(word) {
-  return word
+  /*
+   * Erst maskieren, dann ersetzen. Ohne Maskierung wird aus der Frage
+   * "was ist ki?" das Muster ki? - "k mit optionalem i" - und die Suche hebt
+   * jedes einzelne k hervor.
+   */
+  return escapeRegExp(word)
     .replace(/ae/g, '(ä|ae)')
     .replace(/oe/g, '(ö|oe)')   // "(ä|ae)" enthaelt kein "oe"
     .replace(/ue/g, '(ü|ue)')   // ... und keines der beiden ein "ue"
@@ -1051,8 +1056,11 @@ class TossIndex {
     const s = this.settings;
 
     const raw = fold(query).replace(/\s+/g, ' ').trim();
-    let rawWords = raw.split(' ').filter((w) => w.length >= 2 && !STOPWORDS.has(w));
-    if (!rawWords.length) rawWords = raw.split(' ').filter((w) => w.length >= 2);
+    // Ueber foldedWords statt ueber ein Trennen an Leerzeichen: sonst bleibt
+    // das Satzzeichen am Wort haengen ("machen.") und findet nirgends etwas.
+    const allWords = foldedWords(query).filter((w) => w.length >= 2);
+    let rawWords = allWords.filter((w) => !STOPWORDS.has(w));
+    if (!rawWords.length) rawWords = allWords;
     // Wortanfang statt beliebigem Teilstring: sonst matcht "ohne" in "Bohnen".
     // Das Wortende bleibt offen, damit "tomate" auch "Tomaten" findet.
     const rawRes = rawWords.map((w) => new RegExp('(^|[^a-z0-9])' + escapeRegExp(w)));
@@ -1754,7 +1762,7 @@ class TossView extends ItemView {
 
   renderSearch(query) {
     const { hits, similar } = this.index.search(query, this.semanticVectorFor(query));
-    const words = fold(query).split(/\s+/).filter((w) => w.length >= 2);
+    const words = [...new Set(foldedWords(query).filter((w) => w.length >= 2))];
     const re = queryRegex(words);
 
     if (hits.length) {

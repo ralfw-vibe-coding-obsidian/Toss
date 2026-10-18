@@ -388,6 +388,26 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
     check('… und zurueck gestellt sind sie wieder da', second.index.embedStale().length === 0);
   }
 
+  /* ---------------------------------------------------------------- */
+  group('Fragen als Suchanfrage');
+  {
+    const { I, index, view } = await makeEnv();
+
+    // "ki?" wurde ungeschuetzt ins Muster uebernommen - "k mit optionalem i".
+    const re = I.queryRegex(['ki']);
+    check('Fragezeichen trifft kein nacktes k',
+      !new RegExp(I.queryRegex(['ki?']).source, 'i').test('Knoepfe'));
+    check('… das Wort selbst aber schon', re.test('Ueber KI und Modelle'));
+
+    view.inputEl.value = 'espresso. was ist das?';
+    view.render();
+    const marks = view.listEl.all((e) => e.tagName === 'mark').map((m) => m.text.toLowerCase());
+    check('Satzzeichen landen nicht im Muster: ' + [...new Set(marks)].join(', '),
+      marks.length > 0 && marks.every((m) => m.length > 1));
+    check('Treffer trotz Satzzeichen gefunden',
+      index.search('espresso.').hits.some((h) => h.doc.title.includes('Espresso')));
+  }
+
   console.log('\n' + (failed ? failed + ' FEHLER' : 'alle Checks grün'));
   process.exit(failed ? 1 : 0);
 })().catch((e) => { console.error('\nABBRUCH in "' + section + '"\n', e); process.exit(1); });
