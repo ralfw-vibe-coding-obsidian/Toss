@@ -152,8 +152,35 @@ Wie es arbeitet:
 - **Fällt sauber zurück.** Kein Schlüssel, kein Netz, Fehler beim Dienst: die
   Suche arbeitet lokal weiter.
 
-Der Index speichert die Vektoren base64-kodiert. Mit 512 Dimensionen sind das
-rund 1,4 kB pro Notiz.
+### Der Vektorspeicher ist geteilt
+
+Die Vektoren liegen **nicht** im Index-Cache, sondern in einer eigenen Datei im
+Vault: `.obsidian/plugins/toss/embeddings.json`. Damit kann eine zweite
+Anwendung auf demselben Vault sie mitbenutzen, ohne das Cache-Format des Plugins
+zu kennen.
+
+```json
+{
+  "version": 1,
+  "vectors": {
+    "<inhalts-hash>|<modell>@<dimensionen>": { "v": "<base64 Float32>", "t": 20743 }
+  }
+}
+```
+
+- **Schlüssel** ist der FNV-1a-Hash des eingebetteten Textes (Titel, Tags, Body,
+  gekürzt) plus Modellkennung. Gleicher Schlüssel heißt gleicher Vektor —
+  deshalb sind gleichzeitige Schreiber harmlos: ein verlorenes Update bedeutet
+  einmal neu einbetten, nie falsche Daten.
+- **`v`** ist ein `Float32Array` in Little Endian, base64-kodiert und auf Länge 1
+  normiert. Cosinus ist damit ein schlichtes Skalarprodukt.
+- **`t`** ist der Tag der letzten Benutzung (Unix-Tage). Einträge, die 60 Tage
+  niemand angefasst hat, fallen beim nächsten Schreiben heraus — so räumt sich
+  der Speicher auf, ohne dass eine App die Notizen der anderen wegwirft.
+- **Geschrieben wird zusammenführend**: vor dem Schreiben wird die Datei neu
+  gelesen, damit Einträge einer anderen App stehen bleiben.
+
+Mit 512 Dimensionen sind das rund 1,4 kB je Notiz.
 
 ### LSA als lokale Rückfallebene
 

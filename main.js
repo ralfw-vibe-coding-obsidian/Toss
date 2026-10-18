@@ -20,7 +20,19 @@ const obsidian = require('obsidian');
 const { Plugin, ItemView, Modal, PluginSettingTab, Setting, Notice, TFile, normalizePath, Platform, setIcon, requestUrl } = obsidian;
 
 const VIEW_TYPE_TOSS = 'toss-view';
-const INDEX_VERSION = 7;
+const INDEX_VERSION = 8;
+
+/*
+ * Vektoren liegen NICHT im Index-Cache, sondern in einer eigenen Datei im
+ * Vault - adressiert ueber Inhalts-Hash und Modell. Damit kann eine zweite App
+ * (die Toss-Desktop-App) sie mitbenutzen, ohne das Cache-Format des Plugins zu
+ * kennen. Gleicher Hash heisst gleicher Vektor, also sind gleichzeitige
+ * Schreiber harmlos: ein verlorenes Update bedeutet einmal neu einbetten, nie
+ * falsche Daten.
+ */
+const EMBED_FILE = 'embeddings.json';
+const EMBED_VERSION = 1;
+const EMBED_KEEP_DAYS = 60;
 
 /* Ab wann sich eine Dimensionsreduktion ueberhaupt lohnt. */
 const LSA_MIN_NOTES = 25;
@@ -628,6 +640,7 @@ class TossIndex {
     this.building = true;
     this.listeners = new Set();
     this.embedder = new Embedder(plugin);
+    this.vectors = new Map();     // "hash|modell" -> { v: base64, t: tage, vec: Float32Array }
     this.embedding = false;
     this.embedDone = 0;
     this.embedTotal = 0;
@@ -642,6 +655,58 @@ class TossIndex {
 
   get settings() { return this.plugin.settings; }
   get cachePath() { return normalizePath(this.plugin.manifest.dir + '/index.json'); }
+  get vectorPath() { return normalizePath(this.plugin.manifest.dir + '/' + EMBED_FILE); }
+
+  /* Schluessel eines Vektors: Inhalt plus Modell. */
+  vectorKey(hash) { return hash + '|' + this.embedder.key; }
+
+  async loadVectors() {
+    this.vectors = new Map();
+    try {
+      const adapter = this.app.vault.adapter;
+      if (!(await adapter.exists(this.vectorPath))) return;
+      const data = JSON.parse(await adapter.read(this.vectorPath));
+      if (!data || data.version !== EMBED_VERSION) return;
+      for (const [key, entry] of Object.entries(data.vectors || {})) {
+        this.vectors.set(key, { v: entry.v, t: entry.t || 0, vec: null });
+      }
+    } catch (e) {
+      console.warn('[Toss] Vektorspeicher nicht lesbar, wird neu aufgebaut.', e);
+      this.vectors = new Map();
+    }
+  }
+
+  /*
+   * Vor dem Schreiben neu einlesen und zusammenfuehren: in der Zwischenzeit
+   * kann eine andere App Eintraege hinzugefuegt haben, die hier nicht
+   * verlorengehen sollen.
+   */
+  async saveVectors() {
+    const adapter = this.app.vault.adapter;
+    const merged = new Map();
+    try {
+      if (await adapter.exists(this.vectorPath)) {
+        const data = JSON.parse(await adapter.read(this.vectorPath));
+        if (data && data.version === EMBED_VERSION) {
+          for (const [key, entry] of Object.entries(data.vectors || {})) merged.set(key, entry);
+        }
+      }
+    } catch (e) { /* kaputte Datei wird ersetzt */ }
+
+    const today = Math.floor(Date.now() / 86400000);
+    for (const [key, entry] of this.vectors) merged.set(key, { v: entry.v, t: entry.t || today });
+
+    const out = {};
+    for (const [key, entry] of merged) {
+      if (today - (entry.t || 0) > EMBED_KEEP_DAYS) continue;   // alte Notizen aufraeumen
+      out[key] = entry;
+    }
+    try {
+      await adapter.write(this.vectorPath, JSON.stringify({ version: EMBED_VERSION, vectors: out }));
+    } catch (e) {
+      console.warn('[Toss] Vektorspeicher nicht schreibbar.', e);
+    }
+  }
 
   /* Liegt die Notiz im Toss-Ordner? Unabhaengig vom Suchbereich. */
   isOwn(file) {
@@ -664,6 +729,7 @@ class TossIndex {
     this.status = 'lade Cache …';
     this.notify();
     await this.loadCache();
+    await this.loadVectors();
     await this.scan();
     this.recompute();
     this.building = false;
@@ -691,7 +757,7 @@ class TossIndex {
       const docs = this.list.map((d) => ({
         path: d.path, mtime: d.mtime, created: d.created, title: d.title,
         derived: d.derived, own: d.own, tags: d.tags, text: d.text, norm: d.norm, tf: d.tf, gf: d.gf,
-        embHash: d.embHash, emb: d.emb, embModel: d.embModel,
+        embHash: d.embHash,
       }));
       await this.app.vault.adapter.write(this.cachePath, JSON.stringify({ version: INDEX_VERSION, docs }));
     } catch (e) {
@@ -731,12 +797,10 @@ class TossIndex {
     const searchable = [title, tags.join(' '), body].join('\n');
     const { tf, gf } = featurize(searchable);
 
-    // Ein vorhandenes Embedding uebernehmen, solange sich Inhalt und Modell
-    // nicht geaendert haben - sonst wuerde jede Tippkorrektur neu abrechnen.
-    const embText = searchable.slice(0, this.settings.semanticChars);
-    const embHash = hashText(embText);
-    const before = this.docs.get(file.path);
-    const keep = before && before.embHash === embHash && before.emb;
+    // Nur der Hash haengt an der Notiz; der Vektor steht im gemeinsamen
+    // Speicher. Aendert sich der Inhalt nicht, bleibt er gueltig - egal welche
+    // App ihn berechnet hat.
+    const embHash = hashText(searchable.slice(0, this.settings.semanticChars));
 
     this.docs.set(file.path, {
       path: file.path,
@@ -756,9 +820,6 @@ class TossIndex {
       norm: fold(searchable).replace(/\s+/g, ' '),
       tf, gf,
       embHash,
-      emb: keep ? before.emb : null,
-      embModel: keep ? before.embModel : null,
-      vec: keep ? before.vec : null,
     });
   }
 
@@ -918,8 +979,7 @@ class TossIndex {
 
   embedStale() {
     if (!this.embedder.available()) return [];
-    const key = this.embedder.key;
-    return this.list.filter((d) => !d.emb || d.embModel !== key);
+    return this.list.filter((d) => !this.vectors.has(this.vectorKey(d.embHash)));
   }
 
   async embedMissing() {
@@ -939,18 +999,17 @@ class TossIndex {
       for (let i = 0; i < todo.length; i += batch) {
         const slice = todo.slice(i, i + batch);
         const vecs = await this.embedder.embed(slice.map((d) => this.embedTextOf(d)));
+        const today = Math.floor(Date.now() / 86400000);
         slice.forEach((doc, j) => {
-          // Die Notiz kann sich waehrenddessen geaendert haben.
-          const current = this.docs.get(doc.path);
-          if (!current || current.embHash !== doc.embHash) return;
-          current.vec = vecs[j];
-          current.emb = encodeVec(vecs[j]);
-          current.embModel = key;
+          // Ueber den Inhalts-Hash abgelegt: aendert sich die Notiz
+          // zwischendurch, ist der Eintrag einfach fuer den alten Stand gueltig.
+          this.vectors.set(doc.embHash + '|' + key, { v: encodeVec(vecs[j]), t: today, vec: vecs[j] });
         });
         this.embedDone = Math.min(todo.length, i + slice.length);
         this.notify();
         await new Promise((r) => setTimeout(r, 120));   // hoeflich bleiben
       }
+      await this.saveVectors();
       this.saveSoon();
     } catch (e) {
       console.error('[Toss] Embeddings', e);
@@ -964,10 +1023,13 @@ class TossIndex {
   }
 
   vecOf(doc) {
-    if (doc.vec) return doc.vec;
-    if (!doc.emb || doc.embModel !== this.embedder.key) return null;
-    try { doc.vec = decodeVec(doc.emb); } catch (e) { doc.vec = null; }
-    return doc.vec;
+    const entry = this.vectors.get(this.vectorKey(doc.embHash));
+    if (!entry) return null;
+    if (!entry.vec) {
+      try { entry.vec = decodeVec(entry.v); } catch (e) { return null; }
+    }
+    entry.t = Math.floor(Date.now() / 86400000);   // benutzt, also behalten
+    return entry.vec;
   }
 
   /* --- Suche ------------------------------------------------------ */

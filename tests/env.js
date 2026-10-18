@@ -34,7 +34,7 @@ function loadPlugin() {
   return require(file).__i;
 }
 
-function makeVault(I, extra = []) {
+function makeVault(I, extra = [], disk = new Map()) {
   const store = new Map();
   const files = [];
   const add = (p, content) => {
@@ -68,14 +68,20 @@ function makeVault(I, extra = []) {
     modify: async (f, c) => { store.set(f.path, c); },
     create: async (p, c) => add(p, c),
     createFolder: async () => {},
-    adapter: { exists: async () => false, read: async () => '', write: async () => {} },
+    // Echter Dateispeicher im RAM: der gemeinsame Vektorspeicher soll im Test
+    // wirklich geschrieben und wieder gelesen werden.
+    adapter: {
+      exists: async (p) => disk.has(p),
+      read: async (p) => { if (!disk.has(p)) throw new Error('ENOENT ' + p); return disk.get(p); },
+      write: async (p, c) => { disk.set(p, c); },
+    },
   };
-  return { store, files, vault, add };
+  return { store, files, vault, add, disk };
 }
 
 async function makeEnv(options = {}) {
   const I = loadPlugin();
-  const { store, files, vault, add } = makeVault(I, options.extra);
+  const { store, files, vault, add, disk } = makeVault(I, options.extra, options.disk);
   const opened = { path: null, trashed: null };
 
   const plugin = {
@@ -93,7 +99,7 @@ async function makeEnv(options = {}) {
   };
 
   const index = new I.TossIndex(plugin);
-  index.saveCache = async () => {};
+  if (!options.keepCache) index.saveCache = async () => {};
   plugin.index = index;
   plugin.createNote = async ({ body, title, tags }) => {
     const p = 'Toss/neu-' + files.length + '.md';
@@ -117,7 +123,7 @@ async function makeEnv(options = {}) {
   view.app = plugin.app;
   await view.onOpen();
 
-  return { I, plugin, index, view, store, files, vault, add, opened, obsidian };
+  return { I, plugin, index, view, store, files, vault, add, opened, obsidian, disk };
 }
 
 module.exports = { makeEnv, El, obsidian };

@@ -332,6 +332,58 @@ const tick = () => new Promise((r) => setTimeout(r, 20));
       e.endpoint() === 'https://openrouter.ai/api/v1/embeddings');
   }
 
+  /* ---------------------------------------------------------------- */
+  group('Gemeinsamer Vektorspeicher');
+  {
+    const semantic = {
+      semanticEnabled: true, semanticBaseUrl: 'http://test/v1',
+      semanticModel: 'fake', semanticKey: 'k', semanticDims: 0,
+    };
+    const disk = new Map();
+    const first = await makeEnv({ settings: semantic, disk });
+    await first.index.embedMissing();
+    const pfad = '.obsidian/plugins/toss/embeddings.json';
+    check('Liegt als eigene Datei im Vault, nicht im Index-Cache', disk.has(pfad));
+    const datei = JSON.parse(disk.get(pfad));
+    check('Nach Inhalts-Hash und Modell abgelegt: ' + Object.keys(datei.vectors)[0],
+      Object.keys(datei.vectors).every((k) => /^[0-9a-f]+\|fake@0$/.test(k)));
+    check('Ein Eintrag je Notiz', Object.keys(datei.vectors).length === first.index.list.length);
+
+    // Zweiter Start auf demselben Vault: nichts muss neu eingebettet werden.
+    first.obsidian.__state.requests.length = 0;
+    const second = await makeEnv({ settings: semantic, disk });
+    check('Beim naechsten Start wiederverwendet', second.index.embedStale().length === 0);
+    check('… ohne eine einzige Anfrage', second.obsidian.__state.requests.length === 0);
+    check('Und die Suche nutzt sie', (() => {
+      const doc = second.index.list[0];
+      return second.index.vecOf(doc) instanceof Float32Array;
+    })());
+
+    // Fremder Schreiber zwischendurch - sein Eintrag darf nicht verlorengehen.
+    const vorher = JSON.parse(disk.get(pfad));
+    vorher.vectors['fremderhash|fake@0'] = { v: 'AAAA', t: Math.floor(Date.now() / 86400000) };
+    disk.set(pfad, JSON.stringify(vorher));
+    await second.index.saveVectors();
+    const nachher = JSON.parse(disk.get(pfad));
+    check('Eintrag der anderen App ueberlebt das Schreiben', !!nachher.vectors['fremderhash|fake@0']);
+    check('Eigene Eintraege ebenfalls da', Object.keys(nachher.vectors).length === Object.keys(vorher.vectors).length);
+
+    // Lange nicht benutzte Eintraege fallen heraus.
+    const alt = JSON.parse(disk.get(pfad));
+    alt.vectors['uralt|fake@0'] = { v: 'AAAA', t: Math.floor(Date.now() / 86400000) - 90 };
+    disk.set(pfad, JSON.stringify(alt));
+    await second.index.saveVectors();
+    check('Uralte Eintraege werden aufgeraeumt',
+      !JSON.parse(disk.get(pfad)).vectors['uralt|fake@0']);
+
+    // Modellwechsel macht die alten Vektoren nicht kaputt, nur unbenutzt.
+    second.plugin.settings.semanticModel = 'anderes';
+    check('Nach Modellwechsel gilt alles als offen',
+      second.index.embedStale().length === second.index.list.length);
+    second.plugin.settings.semanticModel = 'fake';
+    check('… und zurueck gestellt sind sie wieder da', second.index.embedStale().length === 0);
+  }
+
   console.log('\n' + (failed ? failed + ' FEHLER' : 'alle Checks grün'));
   process.exit(failed ? 1 : 0);
 })().catch((e) => { console.error('\nABBRUCH in "' + section + '"\n', e); process.exit(1); });
